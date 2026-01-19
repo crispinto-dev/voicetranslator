@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <rect width="192" height="192" rx="24" fill="#0a0a0a"/>
+  <circle cx="96" cy="96" r="60" fill="#00ff88" opacity="0.1"/>
+  <path d="M96 56 L96 136 M56 96 L136 96" stroke="#00ff88" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="96" cy="96" r="8" fill="#00ff88"/>
+  <text x="96" y="170" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#00ff88" font-weight="bold">Voice Translator</text>
+</svg>

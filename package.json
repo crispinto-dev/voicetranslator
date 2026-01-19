@@ -1,0 +1,38 @@
+{
+  "name": "voicetranslator-realtime",
+  "version": "1.0.0",
+  "description": "Real-time voice translation PWA with Deepgram and OpenAI",
+  "main": "server/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "concurrently \"node --watch server/server.js\" \"vite\"",
+    "dev:server": "node --watch server/server.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "voice-translation",
+    "real-time",
+    "deepgram",
+    "openai",
+    "pwa"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@deepgram/sdk": "^3.4.0",
+    "@openai/agents": "^0.3.9",
+    "@openai/agents-realtime": "^0.3.9",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "openai": "^4.28.0",
+    "ws": "^8.16.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "vite": "^7.3.1"
+  }
+}
