@@ -6,6 +6,7 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true
   },
+  publicDir: false,  // Don't use a separate public dir since root is already public
   server: {
     port: 5173,
     hmr: false,  // Disable HMR to avoid WebSocket errors

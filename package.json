@@ -9,7 +9,7 @@
     "dev": "concurrently \"node --watch server/server.js\" \"vite\"",
     "dev:server": "node --watch server/server.js",
     "dev:client": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/post-build.js",
     "preview": "vite preview"
   },
   "keywords": [
