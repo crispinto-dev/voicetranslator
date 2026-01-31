@@ -146,8 +146,8 @@ class VoiceTranslator {
                   threshold: 0.5,              // Standard threshold
                   prefix_padding_ms: 300,      // Context before speech
                   silence_duration_ms: 400,    // Short pause = end of sentence
-                  create_response: false,      // Manual response creation
-                  interrupt_response: false    // ⭐ KEY: Don't interrupt audio output!
+                  createResponse: true,        // Auto-create responses
+                  interruptResponse: false     // ⭐ KEY: Don't interrupt audio output! (camelCase!)
                 },
                 input_audio_transcription: {
                   model: 'whisper-1'           // Enable transcription
@@ -155,7 +155,7 @@ class VoiceTranslator {
               }
             });
 
-            console.log('[App] Full Duplex: interrupt_response DISABLED');
+            console.log('[App] Full Duplex: interruptResponse DISABLED (camelCase)');
             console.log('[App] Audio output will continue playing while you speak');
             console.log('[App] True simultaneous translation enabled!');
           }
@@ -268,22 +268,12 @@ class VoiceTranslator {
           break;
 
         case 'input_audio_buffer.speech_stopped':
-          // In full duplex mode with turn_detection disabled,
-          // we must manually trigger response generation
-          if (this.fullDuplexMode && this.pendingSpeech) {
-            console.log('[App] Speech stopped, creating response...');
-            this.pendingSpeech = false;
-            this.responseInProgress = true;
+          // With createResponse: true, responses are auto-created by turn_detection
+          // Just log and update status
+          console.log('[App] Speech stopped, turn_detection will auto-create response');
+          this.pendingSpeech = false;
 
-            // Manually trigger translation response
-            // This will NOT interrupt any audio currently playing
-            // Multiple responses can queue automatically
-            if (this.session && this.session.transport && this.session.transport.send) {
-              this.session.transport.send({
-                type: 'response.create'
-              });
-            }
-          } else if (!this.fullDuplexMode) {
+          if (!this.fullDuplexMode) {
             this.updateStatus('translating', 'Elaborazione...');
           }
           break;
