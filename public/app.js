@@ -122,15 +122,17 @@ class VoiceTranslator {
 
       // In full duplex mode, configure turn detection to NOT interrupt audio
       if (this.fullDuplexMode) {
-        sessionConfig.turnDetection = {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefixPaddingMs: 300,
-          silenceDurationMs: 400,
-          createResponse: true,        // Auto-create responses
-          interruptResponse: false     // DON'T interrupt audio output!
+        sessionConfig.config = {
+          turnDetection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefixPaddingMs: 300,
+            silenceDurationMs: 400,
+            createResponse: true,        // Auto-create responses
+            interruptResponse: false     // ⭐ KEY: DON'T interrupt audio output!
+          }
         };
-        console.log('[App] Creating session with interruptResponse: false');
+        console.log('[App] Creating session with config.turnDetection.interruptResponse: false');
       }
 
       this.session = new RealtimeSession(this.agent, sessionConfig);
