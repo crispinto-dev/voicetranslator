@@ -264,12 +264,23 @@ class VoiceTranslator {
           this.pendingSpeech = false;
 
           if (this.fullDuplexMode) {
-            // Manual response creation - this bypasses auto-interruption
-            console.log('[App] Creating response MANUALLY (workaround for WebRTC bug)');
+            // Manual pipeline: commit input → create response
+            console.log('[App] Manual pipeline: commit → response.create');
             if (this.session && this.session.transport && this.session.transport.send) {
+              // Step 1: Commit input buffer explicitly
               this.session.transport.send({
-                type: 'response.create'
+                type: 'input_audio_buffer.commit'
               });
+
+              // Step 2: Create response manually
+              // Small delay to ensure commit is processed
+              setTimeout(() => {
+                if (this.session && this.session.transport && this.session.transport.send) {
+                  this.session.transport.send({
+                    type: 'response.create'
+                  });
+                }
+              }, 50);
             }
           } else {
             this.updateStatus('translating', 'Elaborazione...');
