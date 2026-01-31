@@ -39,7 +39,7 @@ class VoiceTranslator {
       this.audioFileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (file) {
-          alert('File testing not yet implemented with Agents SDK');
+          alert('Test con file non ancora implementato con Agents SDK');
         }
       });
     }
@@ -66,7 +66,7 @@ class VoiceTranslator {
 
   async startTranslation() {
     try {
-      this.updateStatus('initializing', 'Initializing...');
+      this.updateStatus('initializing', 'Inizializzazione...');
 
       // Get ephemeral token from backend
       const tokenResponse = await fetch('/api/realtime/token', {
@@ -81,7 +81,7 @@ class VoiceTranslator {
 
       if (!tokenResponse.ok) {
         const error = await tokenResponse.json();
-        throw new Error(error.message || 'Failed to get token');
+        throw new Error(error.message || 'Impossibile ottenere il token');
       }
 
       const { token, instructions } = await tokenResponse.json();
@@ -104,7 +104,7 @@ class VoiceTranslator {
 
       // Connect using the ephemeral token
       // WebRTC in browser automatically handles microphone and speaker
-      this.updateStatus('connecting', 'Connecting...');
+      this.updateStatus('connecting', 'Connessione...');
       await this.session.connect({
         apiKey: token
       });
@@ -147,15 +147,15 @@ class VoiceTranslator {
         console.warn('[App] Could not disable turn_detection:', e);
       }
 
-      this.updateStatus('listening', 'Translating...');
+      this.updateStatus('listening', 'In ascolto...');
 
       this.isRunning = true;
-      this.startButton.textContent = 'Stop Translation';
+      this.startButton.textContent = 'Ferma Traduzione';
       this.startButton.classList.add('active');
 
     } catch (error) {
       console.error('[App] Failed to start translation:', error);
-      this.updateStatus('error', 'Failed to start: ' + error.message);
+      this.updateStatus('error', 'Errore: ' + error.message);
       this.stopTranslation();
     }
   }
@@ -180,6 +180,7 @@ class VoiceTranslator {
           }
           break;
 
+        case 'response.output_audio_transcript.delta':
         case 'response.audio_transcript.delta':
           // Translation text streaming
           if (event.delta) {
@@ -187,6 +188,7 @@ class VoiceTranslator {
           }
           break;
 
+        case 'response.output_audio_transcript.done':
         case 'response.audio_transcript.done':
           // Translation complete
           if (event.transcript) {
@@ -197,27 +199,27 @@ class VoiceTranslator {
 
         case 'response.audio.delta':
           // Audio is being played (ducking could be implemented here)
-          this.updateStatus('playing', 'Playing translation...');
+          this.updateStatus('playing', 'Riproduzione...');
           break;
 
         case 'response.audio.done':
           // Audio playback finished
-          this.updateStatus('listening', 'Listening...');
+          this.updateStatus('listening', 'In ascolto...');
           break;
 
         case 'input_audio_buffer.speech_started':
-          this.updateStatus('listening', 'Listening...');
+          this.updateStatus('listening', 'In ascolto...');
           // Clear previous translation when new speech starts
           this.translatedText.textContent = '';
           break;
 
         case 'input_audio_buffer.speech_stopped':
-          this.updateStatus('translating', 'Processing...');
+          this.updateStatus('translating', 'Elaborazione...');
           break;
 
         case 'error':
           console.error('[App] Realtime API error:', event.error);
-          this.updateStatus('error', 'Error: ' + (event.error?.message || 'Unknown error'));
+          this.updateStatus('error', 'Errore: ' + (event.error?.message || 'Errore sconosciuto'));
           break;
       }
     });
@@ -246,9 +248,9 @@ class VoiceTranslator {
     }
 
     this.isRunning = false;
-    this.startButton.textContent = 'Start Translation';
+    this.startButton.textContent = 'Avvia Traduzione';
     this.startButton.classList.remove('active');
-    this.updateStatus('disconnected', 'Disconnected');
+    this.updateStatus('disconnected', 'Disconnesso');
   }
 
   async changeLanguage(language) {

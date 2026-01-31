@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Real-time voice translation with speech recognition and text-to-speech">
+  <meta name="description" content="Traduzione vocale in tempo reale con riconoscimento vocale e sintesi vocale">
   <meta name="theme-color" content="#00ff88">
   <title>Voice Translator Real-Time</title>
 
@@ -23,37 +23,37 @@
   <div class="container">
     <header>
       <h1>🌐 Voice Translator</h1>
-      <p class="subtitle">Real-time speech translation</p>
+      <p class="subtitle">Traduzione vocale in tempo reale</p>
     </header>
 
     <main>
       <!-- Status Section -->
       <div class="status-section">
         <div class="status-indicator" id="statusIndicator"></div>
-        <span class="status-text" id="statusText">Ready</span>
+        <span class="status-text" id="statusText">Pronto</span>
       </div>
 
       <!-- Language Selection -->
       <div class="language-section">
-        <label for="languageSelect">Translate to:</label>
+        <label for="languageSelect">Traduci in:</label>
         <select id="languageSelect" class="language-select">
-          <option value="en">English</option>
-          <option value="it">Italian</option>
-          <option value="es">Spanish</option>
-          <option value="fr">French</option>
-          <option value="de">German</option>
-          <option value="pt">Portuguese</option>
-          <option value="zh">Chinese</option>
-          <option value="ja">Japanese</option>
-          <option value="ko">Korean</option>
-          <option value="ar">Arabic</option>
-          <option value="ru">Russian</option>
+          <option value="en">Inglese</option>
+          <option value="it">Italiano</option>
+          <option value="es">Spagnolo</option>
+          <option value="fr">Francese</option>
+          <option value="de">Tedesco</option>
+          <option value="pt">Portoghese</option>
+          <option value="zh">Cinese</option>
+          <option value="ja">Giapponese</option>
+          <option value="ko">Coreano</option>
+          <option value="ar">Arabo</option>
+          <option value="ru">Russo</option>
         </select>
       </div>
 
       <!-- Control Button -->
       <div class="control-section">
-        <button id="startButton" class="start-button">Start Translation</button>
+        <button id="startButton" class="start-button">Avvia Traduzione</button>
         <div class="file-test-section">
           <input type="file" id="audioFileInput" accept=".mp3,.wav,.webm,.m4a,.ogg" style="display: none;">
           <button id="testFileButton" class="test-file-button">Test con file audio</button>
@@ -63,36 +63,32 @@
       <!-- Transcription Display -->
       <div class="transcription-section">
         <div class="transcription-box">
-          <h3>Original</h3>
-          <div class="text-display" id="originalText">Speak to start...</div>
+          <h3>Originale</h3>
+          <div class="text-display" id="originalText">Inizia a parlare...</div>
         </div>
 
         <div class="arrow">→</div>
 
         <div class="transcription-box">
-          <h3>Translation</h3>
-          <div class="text-display" id="translatedText">Translation will appear here...</div>
+          <h3>Traduzione</h3>
+          <div class="text-display" id="translatedText">La traduzione apparirà qui...</div>
         </div>
       </div>
 
       <!-- Info Section -->
       <div class="info-section">
         <p>
-          <strong>How to use:</strong><br>
-          1. Select target language<br>
-          2. Click "Start Translation"<br>
-          3. Speak clearly into your microphone<br>
-          4. Listen to the translation
+          <strong>Come usare:</strong><br>
+          1. Seleziona la lingua di destinazione<br>
+          2. Clicca "Avvia Traduzione"<br>
+          3. Parla chiaramente nel microfono<br>
+          4. Ascolta la traduzione
         </p>
         <p class="note">
-          Note: Microphone volume is automatically reduced during translation playback to prevent echo.
+          Nota: Il volume del microfono viene automaticamente ridotto durante la riproduzione della traduzione per evitare l'eco.
         </p>
       </div>
     </main>
-
-    <footer>
-      <p>Powered by OpenAI Agents SDK</p>
-    </footer>
   </div>
 
   <!-- Scripts - Vite handles module bundling -->
