@@ -130,40 +130,46 @@ class VoiceTranslator {
 
       console.log('[App] Connected to OpenAI Realtime API via WebRTC');
 
-      // Full Duplex Mode: Disable VAD for simultaneous translation
+      // Full Duplex Mode: Configure for true simultaneous translation
       if (this.fullDuplexMode) {
         try {
-          // Send session.update to disable VAD for continuous translation
           if (this.session.transport && this.session.transport.send) {
+            // Configure session for simultaneous interpretation
             this.session.transport.send({
               type: 'session.update',
               session: {
-                turn_detection: null  // Disable VAD for simultaneous translation
+                turn_detection: null,  // Disable VAD completely
+                input_audio_transcription: {
+                  model: 'whisper-1'  // Enable transcription to help model understand input
+                }
               }
             });
-            console.log('[App] Full Duplex: Disabled turn_detection for simultaneous translation');
+            console.log('[App] Full Duplex: Configured for simultaneous translation');
 
-            // Start periodic commit for continuous translation
-            // Commit audio buffer every 1.5 seconds to trigger translation
+            // More aggressive commit interval for sentence-by-sentence translation
+            // Commit every 800ms to catch complete sentences quickly
             this.commitInterval = setInterval(() => {
               if (this.session && this.session.transport && this.session.transport.send) {
                 try {
                   this.session.transport.send({
                     type: 'input_audio_buffer.commit'
                   });
-                  // Request response after commit
                   this.session.transport.send({
-                    type: 'response.create'
+                    type: 'response.create',
+                    response: {
+                      modalities: ['text', 'audio'],
+                      instructions: 'Translate the last sentence immediately into the target language.'
+                    }
                   });
                 } catch (err) {
-                  // Ignore errors during periodic commit
+                  console.warn('[App] Commit error:', err);
                 }
               }
-            }, 1500);
-            console.log('[App] Full Duplex: Started periodic audio commit (every 1.5s)');
+            }, 800);
+            console.log('[App] Full Duplex: Aggressive commit mode (800ms intervals)');
           }
         } catch (e) {
-          console.warn('[App] Could not disable turn_detection:', e);
+          console.error('[App] Full duplex configuration error:', e);
         }
       } else {
         console.log('[App] Half Duplex: Using server VAD (turn detection enabled)');
