@@ -120,19 +120,20 @@ class VoiceTranslator {
         model: 'gpt-4o-realtime-preview-2024-12-17'
       };
 
+      // DEBUG: Log fullDuplexMode state at session creation
+      console.log('[DEBUG] fullDuplexMode at session creation:', this.fullDuplexMode);
+
       // In full duplex mode, configure turn detection to NOT interrupt audio
+      // Using MINIMAL config as suggested by OpenAI docs
       if (this.fullDuplexMode) {
         sessionConfig.config = {
           turnDetection: {
             type: 'server_vad',
-            threshold: 0.5,
-            prefixPaddingMs: 300,
-            silenceDurationMs: 400,
-            createResponse: true,        // Auto-create responses
-            interruptResponse: false     // ⭐ KEY: DON'T interrupt audio output!
+            createResponse: false,       // Manual response creation (workaround A)
+            interruptResponse: false     // ⭐ Don't interrupt (may not work due to WebRTC bug)
           }
         };
-        console.log('[App] Creating session with config.turnDetection.interruptResponse: false');
+        console.log('[DEBUG] sessionConfig being used:', JSON.stringify(sessionConfig, null, 2));
       }
 
       this.session = new RealtimeSession(this.agent, sessionConfig);
@@ -258,12 +259,19 @@ class VoiceTranslator {
           break;
 
         case 'input_audio_buffer.speech_stopped':
-          // With createResponse: true, responses are auto-created by turn_detection
-          // Just log and update status
-          console.log('[App] Speech stopped, turn_detection will auto-create response');
+          // Workaround A: Manual turn-taking to avoid auto-interruption
+          console.log('[App] Speech stopped');
           this.pendingSpeech = false;
 
-          if (!this.fullDuplexMode) {
+          if (this.fullDuplexMode) {
+            // Manual response creation - this bypasses auto-interruption
+            console.log('[App] Creating response MANUALLY (workaround for WebRTC bug)');
+            if (this.session && this.session.transport && this.session.transport.send) {
+              this.session.transport.send({
+                type: 'response.create'
+              });
+            }
+          } else {
             this.updateStatus('translating', 'Elaborazione...');
           }
           break;
