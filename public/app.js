@@ -130,43 +130,28 @@ class VoiceTranslator {
 
       console.log('[App] Connected to OpenAI Realtime API via WebRTC');
 
-      // Full Duplex Mode: Configure for true simultaneous translation
+      // Full Duplex Mode: Configure for continuous interpretation (guide mode)
       if (this.fullDuplexMode) {
         try {
           if (this.session.transport && this.session.transport.send) {
-            // Configure session for simultaneous interpretation
+            // Use server_vad with very short silence detection for sentence segmentation
+            // This allows quick phrase detection without interrupting audio output
             this.session.transport.send({
               type: 'session.update',
               session: {
-                turn_detection: null,  // Disable VAD completely
+                turn_detection: {
+                  type: 'server_vad',
+                  threshold: 0.5,  // Standard threshold
+                  prefix_padding_ms: 300,  // Context before speech
+                  silence_duration_ms: 400  // Very short pause = end of sentence (fast segmentation)
+                },
                 input_audio_transcription: {
-                  model: 'whisper-1'  // Enable transcription to help model understand input
+                  model: 'whisper-1'  // Enable transcription
                 }
               }
             });
-            console.log('[App] Full Duplex: Configured for simultaneous translation');
-
-            // More aggressive commit interval for sentence-by-sentence translation
-            // Commit every 800ms to catch complete sentences quickly
-            this.commitInterval = setInterval(() => {
-              if (this.session && this.session.transport && this.session.transport.send) {
-                try {
-                  this.session.transport.send({
-                    type: 'input_audio_buffer.commit'
-                  });
-                  this.session.transport.send({
-                    type: 'response.create',
-                    response: {
-                      modalities: ['text', 'audio'],
-                      instructions: 'Translate the last sentence immediately into the target language.'
-                    }
-                  });
-                } catch (err) {
-                  console.warn('[App] Commit error:', err);
-                }
-              }
-            }, 800);
-            console.log('[App] Full Duplex: Aggressive commit mode (800ms intervals)');
+            console.log('[App] Full Duplex: Fast VAD segmentation mode for continuous interpretation');
+            console.log('[App] Audio translations will queue and play continuously without interruption');
           }
         } catch (e) {
           console.error('[App] Full duplex configuration error:', e);
@@ -221,7 +206,18 @@ class VoiceTranslator {
           // Translation complete
           if (event.transcript) {
             console.log('[App] Translation:', event.transcript);
-            this.translatedText.textContent = event.transcript;
+
+            // In full duplex mode, append translations (queue behavior)
+            // In half duplex, replace
+            if (this.fullDuplexMode) {
+              // Add a space and append the new translation
+              if (this.translatedText.textContent && !this.translatedText.textContent.endsWith(' ')) {
+                this.translatedText.textContent += ' ';
+              }
+              this.translatedText.textContent += event.transcript;
+            } else {
+              this.translatedText.textContent = event.transcript;
+            }
           }
           break;
 
@@ -236,13 +232,20 @@ class VoiceTranslator {
           break;
 
         case 'input_audio_buffer.speech_started':
-          this.updateStatus('listening', 'In ascolto...');
-          // Clear previous translation when new speech starts
-          this.translatedText.textContent = '';
+          // In full duplex mode, DON'T clear previous translation
+          // Audio continues to play while new input is buffered
+          if (!this.fullDuplexMode) {
+            this.translatedText.textContent = '';
+          }
+          // Just log, don't interrupt
+          console.log('[App] New speech detected, buffering...');
           break;
 
         case 'input_audio_buffer.speech_stopped':
-          this.updateStatus('translating', 'Elaborazione...');
+          // Don't change status in full duplex - translation is continuous
+          if (!this.fullDuplexMode) {
+            this.updateStatus('translating', 'Elaborazione...');
+          }
           break;
 
         case 'error':
