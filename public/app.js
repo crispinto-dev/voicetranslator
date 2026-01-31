@@ -136,20 +136,32 @@ class VoiceTranslator {
       if (this.fullDuplexMode) {
         try {
           if (this.session.transport && this.session.transport.send) {
-            // CRITICAL: Disable turn_detection completely to prevent audio interruption
-            // When turn_detection is disabled, audio output plays continuously
-            // and is NEVER interrupted when new input arrives
+            // CRITICAL: Use manual VAD (no server turn detection)
+            // This prevents the SDK from auto-interrupting audio output
             this.session.transport.send({
               type: 'session.update',
               session: {
-                turn_detection: null,  // DISABLED - no automatic turn detection
+                turn_detection: null,  // Completely disabled
                 input_audio_transcription: {
-                  model: 'whisper-1'  // Enable transcription
+                  model: 'whisper-1'
                 }
               }
             });
-            console.log('[App] Full Duplex: turn_detection DISABLED');
-            console.log('[App] Audio output will NEVER be interrupted by new input');
+
+            // INTERCEPT: Prevent automatic audio buffer clearing
+            const originalSend = this.session.transport.send.bind(this.session.transport);
+            this.session.transport.send = (event) => {
+              // Block any truncate/cancel commands when in full duplex
+              if (this.fullDuplexMode &&
+                  (event.type === 'conversation.item.truncate' ||
+                   event.type === 'response.cancel')) {
+                console.log('[App] BLOCKED auto-interruption:', event.type);
+                return;
+              }
+              return originalSend(event);
+            };
+
+            console.log('[App] Full Duplex: Manual VAD mode - audio NEVER interrupted');
             console.log('[App] Input and output are completely independent channels');
           }
         } catch (e) {
