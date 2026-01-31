@@ -10,6 +10,7 @@ class VoiceTranslator {
     this.isRunning = false;
     this.targetLanguage = 'en';
     this.isMuted = false;
+    this.fullDuplexMode = false;  // Full duplex mode (simultaneous translation)
 
     this.initializeUI();
     this.registerServiceWorker();
@@ -24,9 +25,27 @@ class VoiceTranslator {
     this.translatedText = document.getElementById('translatedText');
     this.testFileButton = document.getElementById('testFileButton');
     this.audioFileInput = document.getElementById('audioFileInput');
+    this.fullDuplexToggle = document.getElementById('fullDuplexToggle');
 
     this.startButton.addEventListener('click', () => this.toggleTranslation());
     this.languageSelect.addEventListener('change', (e) => this.changeLanguage(e.target.value));
+
+    // Full duplex mode toggle
+    if (this.fullDuplexToggle) {
+      this.fullDuplexToggle.addEventListener('change', (e) => {
+        this.fullDuplexMode = e.target.checked;
+        console.log('[App] Full duplex mode:', this.fullDuplexMode ? 'enabled' : 'disabled');
+
+        // If session is active, restart to apply changes
+        if (this.isRunning) {
+          const wasRunning = this.isRunning;
+          this.stopTranslation();
+          if (wasRunning) {
+            setTimeout(() => this.startTranslation(), 500);
+          }
+        }
+      });
+    }
 
     // File upload event handlers (for testing)
     if (this.testFileButton) {
@@ -111,40 +130,43 @@ class VoiceTranslator {
 
       console.log('[App] Connected to OpenAI Realtime API via WebRTC');
 
-      // Disable turn_detection for simultaneous translation
-      // This allows the AI to start translating while the user is still speaking
-      try {
-        // Send session.update to disable VAD for continuous translation
-        if (this.session.transport && this.session.transport.send) {
-          this.session.transport.send({
-            type: 'session.update',
-            session: {
-              turn_detection: null  // Disable VAD for simultaneous translation
-            }
-          });
-          console.log('[App] Disabled turn_detection for simultaneous translation');
-
-          // Start periodic commit for continuous translation
-          // Commit audio buffer every 1.5 seconds to trigger translation
-          this.commitInterval = setInterval(() => {
-            if (this.session && this.session.transport && this.session.transport.send) {
-              try {
-                this.session.transport.send({
-                  type: 'input_audio_buffer.commit'
-                });
-                // Request response after commit
-                this.session.transport.send({
-                  type: 'response.create'
-                });
-              } catch (err) {
-                // Ignore errors during periodic commit
+      // Full Duplex Mode: Disable VAD for simultaneous translation
+      if (this.fullDuplexMode) {
+        try {
+          // Send session.update to disable VAD for continuous translation
+          if (this.session.transport && this.session.transport.send) {
+            this.session.transport.send({
+              type: 'session.update',
+              session: {
+                turn_detection: null  // Disable VAD for simultaneous translation
               }
-            }
-          }, 1500);
-          console.log('[App] Started periodic audio commit (every 1.5s)');
+            });
+            console.log('[App] Full Duplex: Disabled turn_detection for simultaneous translation');
+
+            // Start periodic commit for continuous translation
+            // Commit audio buffer every 1.5 seconds to trigger translation
+            this.commitInterval = setInterval(() => {
+              if (this.session && this.session.transport && this.session.transport.send) {
+                try {
+                  this.session.transport.send({
+                    type: 'input_audio_buffer.commit'
+                  });
+                  // Request response after commit
+                  this.session.transport.send({
+                    type: 'response.create'
+                  });
+                } catch (err) {
+                  // Ignore errors during periodic commit
+                }
+              }
+            }, 1500);
+            console.log('[App] Full Duplex: Started periodic audio commit (every 1.5s)');
+          }
+        } catch (e) {
+          console.warn('[App] Could not disable turn_detection:', e);
         }
-      } catch (e) {
-        console.warn('[App] Could not disable turn_detection:', e);
+      } else {
+        console.log('[App] Half Duplex: Using server VAD (turn detection enabled)');
       }
 
       this.updateStatus('listening', 'In ascolto...');
