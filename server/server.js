@@ -18,7 +18,14 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
+
+// Serve static files from dist/ in production, public/ in development
+const staticDir = process.env.NODE_ENV === 'production'
+  ? path.join(__dirname, '../dist')
+  : path.join(__dirname, '../public');
+
+console.log(`Serving static files from: ${staticDir}`);
+app.use(express.static(staticDir));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

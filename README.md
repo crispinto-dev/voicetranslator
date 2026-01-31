@@ -134,6 +134,99 @@ Tutto in un'unica connessione WebSocket, semplificando notevolmente l'architettu
 - 🇸🇦 العربية (ar)
 - 🇷🇺 Русский (ru)
 
+## Deployment su VPS
+
+### Prerequisiti
+
+- VPS con Ubuntu/Debian
+- Dominio con DNS configurato (es: `translate.musound.it`)
+- Node.js 18+ installato
+- Nginx installato
+
+### 1. Clona il repository
+
+```bash
+cd /var/www
+git clone https://github.com/crispinto-dev/voicetranslator.git
+cd voicetranslator
+```
+
+### 2. Installa dipendenze
+
+```bash
+npm install
+```
+
+### 3. Configura variabili d'ambiente
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Aggiungi la tua chiave API OpenAI:
+
+```env
+OPENAI_API_KEY=sk-proj-...
+PORT=3000
+NODE_ENV=production
+```
+
+### 4. Build del frontend
+
+**IMPORTANTE**: Il frontend usa moduli npm che devono essere bundlati per il browser.
+
+```bash
+npm run build
+```
+
+Questo comando crea la cartella `dist/` con i file bundlati da Vite.
+
+### 5. Avvia con PM2
+
+```bash
+npm install -g pm2
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+
+### 6. Configura Nginx
+
+**IMPORTANTE**: WebRTC richiede HTTPS. Configurazione HTTP non funzionerà.
+
+```bash
+# Installa Certbot per Let's Encrypt
+sudo apt install certbot python3-certbot-nginx
+
+# Genera certificato SSL
+sudo certbot --nginx -d translate.musound.it
+
+# Copia la configurazione Nginx
+sudo cp nginx.example.conf /etc/nginx/sites-available/voicetranslator
+sudo ln -s /etc/nginx/sites-available/voicetranslator /etc/nginx/sites-enabled/
+
+# Testa e riavvia Nginx
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 7. Verifica
+
+Apri `https://translate.musound.it` nel browser.
+
+### Aggiornamenti
+
+Per aggiornare l'app dopo modifiche:
+
+```bash
+cd /var/www/voicetranslator
+git pull
+npm install
+npm run build  # IMPORTANTE: rebuilda il frontend
+pm2 restart voicetranslator
+```
+
 ## Risoluzione Problemi
 
 ### L'audio non viene riprodotto
