@@ -115,10 +115,25 @@ class VoiceTranslator {
         instructions: instructions
       });
 
-      // Create session
-      this.session = new RealtimeSession(this.agent, {
+      // Create session with turn detection config
+      const sessionConfig = {
         model: 'gpt-4o-realtime-preview-2024-12-17'
-      });
+      };
+
+      // In full duplex mode, configure turn detection to NOT interrupt audio
+      if (this.fullDuplexMode) {
+        sessionConfig.turnDetection = {
+          type: 'server_vad',
+          threshold: 0.5,
+          prefixPaddingMs: 300,
+          silenceDurationMs: 400,
+          createResponse: true,        // Auto-create responses
+          interruptResponse: false     // DON'T interrupt audio output!
+        };
+        console.log('[App] Creating session with interruptResponse: false');
+      }
+
+      this.session = new RealtimeSession(this.agent, sessionConfig);
 
       // Set up event handlers
       this.setupEventHandlers();
@@ -132,38 +147,11 @@ class VoiceTranslator {
 
       console.log('[App] Connected to OpenAI Realtime API via WebRTC');
 
-      // Full Duplex Mode: Configure for continuous interpretation (guide mode)
       if (this.fullDuplexMode) {
-        try {
-          if (this.session.transport && this.session.transport.send) {
-            // SOLUTION: Disable automatic response interruption (barge-in)
-            // This allows true full duplex - audio output continues even when user speaks
-            this.session.transport.send({
-              type: 'session.update',
-              session: {
-                turn_detection: {
-                  type: 'server_vad',
-                  threshold: 0.5,              // Standard threshold
-                  prefix_padding_ms: 300,      // Context before speech
-                  silence_duration_ms: 400,    // Short pause = end of sentence
-                  createResponse: true,        // Auto-create responses
-                  interruptResponse: false     // ⭐ KEY: Don't interrupt audio output! (camelCase!)
-                },
-                input_audio_transcription: {
-                  model: 'whisper-1'           // Enable transcription
-                }
-              }
-            });
-
-            console.log('[App] Full Duplex: interruptResponse DISABLED (camelCase)');
-            console.log('[App] Audio output will continue playing while you speak');
-            console.log('[App] True simultaneous translation enabled!');
-          }
-        } catch (e) {
-          console.error('[App] Full duplex configuration error:', e);
-        }
+        console.log('[App] ✅ Full Duplex mode: interruptResponse is DISABLED');
+        console.log('[App] ✅ Audio output will play continuously without interruption');
       } else {
-        console.log('[App] Half Duplex: Using server VAD (turn detection enabled)');
+        console.log('[App] Half Duplex: Using default turn detection');
       }
 
       this.updateStatus('listening', 'In ascolto...');
