@@ -136,33 +136,24 @@ class VoiceTranslator {
       if (this.fullDuplexMode) {
         try {
           if (this.session.transport && this.session.transport.send) {
-            // CRITICAL: Use manual VAD (no server turn detection)
-            // This prevents the SDK from auto-interrupting audio output
+            // WORKAROUND: Disable input_audio_transcription VAD
+            // Use server_vad but with very permissive settings to reduce interruptions
             this.session.transport.send({
               type: 'session.update',
               session: {
-                turn_detection: null,  // Completely disabled
-                input_audio_transcription: {
-                  model: 'whisper-1'
-                }
+                turn_detection: {
+                  type: 'server_vad',
+                  threshold: 0.8,  // Higher threshold = less sensitive
+                  prefix_padding_ms: 100,
+                  silence_duration_ms: 2000,  // Long pause needed to trigger
+                  create_response: false  // Don't auto-create responses
+                },
+                input_audio_transcription: null  // Disable transcription VAD
               }
             });
 
-            // INTERCEPT: Prevent automatic audio buffer clearing
-            const originalSend = this.session.transport.send.bind(this.session.transport);
-            this.session.transport.send = (event) => {
-              // Block any truncate/cancel commands when in full duplex
-              if (this.fullDuplexMode &&
-                  (event.type === 'conversation.item.truncate' ||
-                   event.type === 'response.cancel')) {
-                console.log('[App] BLOCKED auto-interruption:', event.type);
-                return;
-              }
-              return originalSend(event);
-            };
-
-            console.log('[App] Full Duplex: Manual VAD mode - audio NEVER interrupted');
-            console.log('[App] Input and output are completely independent channels');
+            console.log('[App] Full Duplex: High-latency VAD to minimize interruptions');
+            console.warn('[App] ⚠️ Note: OpenAI Realtime API may still interrupt audio - this is an API limitation');
           }
         } catch (e) {
           console.error('[App] Full duplex configuration error:', e);
@@ -241,6 +232,24 @@ class VoiceTranslator {
           // Audio playback finished
           this.responseInProgress = false;
           this.updateStatus('listening', 'In ascolto...');
+          break;
+
+        case 'output_audio_buffer.cleared':
+          // CRITICAL: In full duplex, this event should NEVER happen
+          // If it does, it means the server is forcing interruption
+          if (this.fullDuplexMode) {
+            console.error('[App] ⚠️ AUDIO BUFFER CLEARED - Server forced interruption!');
+            console.error('[App] This is a limitation of the OpenAI Realtime API with WebRTC');
+            // We cannot prevent this at the client level
+          }
+          break;
+
+        case 'conversation.item.truncated':
+          // CRITICAL: Server truncated audio output
+          if (this.fullDuplexMode) {
+            console.error('[App] ⚠️ AUDIO TRUNCATED at', event.audio_end_ms, 'ms');
+            console.error('[App] The OpenAI Realtime API does not support true full duplex');
+          }
           break;
 
         case 'input_audio_buffer.speech_started':
