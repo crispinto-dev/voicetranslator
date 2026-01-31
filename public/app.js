@@ -123,17 +123,27 @@ class VoiceTranslator {
       // DEBUG: Log fullDuplexMode state at session creation
       console.log('[DEBUG] fullDuplexMode at session creation:', this.fullDuplexMode);
 
-      // In full duplex mode, configure turn detection to NOT interrupt audio
-      // Using MINIMAL config as suggested by OpenAI docs
+      // Configure turn detection based on mode
       if (this.fullDuplexMode) {
+        // Full Duplex: Manual turn-taking
         sessionConfig.config = {
           turnDetection: {
             type: 'server_vad',
-            createResponse: false,       // Manual response creation (workaround A)
-            interruptResponse: false     // ⭐ Don't interrupt (may not work due to WebRTC bug)
+            createResponse: false,       // Manual response creation
+            interruptResponse: false     // Don't interrupt (may not work due to WebRTC bug)
           }
         };
-        console.log('[DEBUG] sessionConfig being used:', JSON.stringify(sessionConfig, null, 2));
+        console.log('[DEBUG] Full Duplex config:', JSON.stringify(sessionConfig.config, null, 2));
+      } else {
+        // Half Duplex: Standard automatic mode
+        sessionConfig.config = {
+          turnDetection: {
+            type: 'server_vad',
+            createResponse: true,        // ✅ Automatic responses
+            interruptResponse: true      // ✅ Allow interruption (standard behavior)
+          }
+        };
+        console.log('[DEBUG] Half Duplex config (standard):', JSON.stringify(sessionConfig.config, null, 2));
       }
 
       this.session = new RealtimeSession(this.agent, sessionConfig);
@@ -259,32 +269,21 @@ class VoiceTranslator {
           break;
 
         case 'input_audio_buffer.speech_stopped':
-          // Workaround A: Manual turn-taking to avoid auto-interruption
           console.log('[App] Speech stopped');
           this.pendingSpeech = false;
+          this.updateStatus('translating', 'Elaborazione...');
 
+          // In full duplex mode, manually trigger response after commit
           if (this.fullDuplexMode) {
-            // Manual pipeline: commit input → create response
-            console.log('[App] Manual pipeline: commit → response.create');
-            if (this.session && this.session.transport && this.session.transport.send) {
-              // Step 1: Commit input buffer explicitly
-              this.session.transport.send({
-                type: 'input_audio_buffer.commit'
-              });
-
-              // Step 2: Create response manually
-              // Small delay to ensure commit is processed
-              setTimeout(() => {
-                if (this.session && this.session.transport && this.session.transport.send) {
-                  this.session.transport.send({
-                    type: 'response.create'
-                  });
-                }
-              }, 50);
-            }
-          } else {
-            this.updateStatus('translating', 'Elaborazione...');
+            console.log('[App] Full duplex: manual response.create');
+            // Wait for automatic commit, then create response
+            setTimeout(() => {
+              if (this.session?.transport?.send) {
+                this.session.transport.send({ type: 'response.create' });
+              }
+            }, 100);
           }
+          // In half duplex mode, createResponse is enabled by default (automatic)
           break;
 
         case 'error':
