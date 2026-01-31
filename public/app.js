@@ -136,24 +136,28 @@ class VoiceTranslator {
       if (this.fullDuplexMode) {
         try {
           if (this.session.transport && this.session.transport.send) {
-            // WORKAROUND: Disable input_audio_transcription VAD
-            // Use server_vad but with very permissive settings to reduce interruptions
+            // SOLUTION: Disable automatic response interruption (barge-in)
+            // This allows true full duplex - audio output continues even when user speaks
             this.session.transport.send({
               type: 'session.update',
               session: {
                 turn_detection: {
                   type: 'server_vad',
-                  threshold: 0.8,  // Higher threshold = less sensitive
-                  prefix_padding_ms: 100,
-                  silence_duration_ms: 2000,  // Long pause needed to trigger
-                  create_response: false  // Don't auto-create responses
+                  threshold: 0.5,              // Standard threshold
+                  prefix_padding_ms: 300,      // Context before speech
+                  silence_duration_ms: 400,    // Short pause = end of sentence
+                  create_response: false,      // Manual response creation
+                  interrupt_response: false    // ⭐ KEY: Don't interrupt audio output!
                 },
-                input_audio_transcription: null  // Disable transcription VAD
+                input_audio_transcription: {
+                  model: 'whisper-1'           // Enable transcription
+                }
               }
             });
 
-            console.log('[App] Full Duplex: High-latency VAD to minimize interruptions');
-            console.warn('[App] ⚠️ Note: OpenAI Realtime API may still interrupt audio - this is an API limitation');
+            console.log('[App] Full Duplex: interrupt_response DISABLED');
+            console.log('[App] Audio output will continue playing while you speak');
+            console.log('[App] True simultaneous translation enabled!');
           }
         } catch (e) {
           console.error('[App] Full duplex configuration error:', e);
