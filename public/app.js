@@ -11,6 +11,8 @@ class VoiceTranslator {
     this.targetLanguage = 'en';
     this.isMuted = false;
     this.fullDuplexMode = false;  // Full duplex mode (simultaneous translation)
+    this.responseInProgress = false;  // Track if a response is being generated
+    this.pendingSpeech = false;  // Track if there's speech waiting to be translated
 
     this.initializeUI();
     this.registerServiceWorker();
@@ -134,24 +136,21 @@ class VoiceTranslator {
       if (this.fullDuplexMode) {
         try {
           if (this.session.transport && this.session.transport.send) {
-            // Use server_vad with very short silence detection for sentence segmentation
-            // This allows quick phrase detection without interrupting audio output
+            // CRITICAL: Disable turn_detection completely to prevent audio interruption
+            // When turn_detection is disabled, audio output plays continuously
+            // and is NEVER interrupted when new input arrives
             this.session.transport.send({
               type: 'session.update',
               session: {
-                turn_detection: {
-                  type: 'server_vad',
-                  threshold: 0.5,  // Standard threshold
-                  prefix_padding_ms: 300,  // Context before speech
-                  silence_duration_ms: 400  // Very short pause = end of sentence (fast segmentation)
-                },
+                turn_detection: null,  // DISABLED - no automatic turn detection
                 input_audio_transcription: {
                   model: 'whisper-1'  // Enable transcription
                 }
               }
             });
-            console.log('[App] Full Duplex: Fast VAD segmentation mode for continuous interpretation');
-            console.log('[App] Audio translations will queue and play continuously without interruption');
+            console.log('[App] Full Duplex: turn_detection DISABLED');
+            console.log('[App] Audio output will NEVER be interrupted by new input');
+            console.log('[App] Input and output are completely independent channels');
           }
         } catch (e) {
           console.error('[App] Full duplex configuration error:', e);
@@ -228,6 +227,7 @@ class VoiceTranslator {
 
         case 'response.audio.done':
           // Audio playback finished
+          this.responseInProgress = false;
           this.updateStatus('listening', 'In ascolto...');
           break;
 
@@ -237,13 +237,28 @@ class VoiceTranslator {
           if (!this.fullDuplexMode) {
             this.translatedText.textContent = '';
           }
-          // Just log, don't interrupt
+          // Mark that we have speech to translate
+          this.pendingSpeech = true;
           console.log('[App] New speech detected, buffering...');
           break;
 
         case 'input_audio_buffer.speech_stopped':
-          // Don't change status in full duplex - translation is continuous
-          if (!this.fullDuplexMode) {
+          // In full duplex mode with turn_detection disabled,
+          // we must manually trigger response generation
+          if (this.fullDuplexMode && this.pendingSpeech) {
+            console.log('[App] Speech stopped, creating response...');
+            this.pendingSpeech = false;
+            this.responseInProgress = true;
+
+            // Manually trigger translation response
+            // This will NOT interrupt any audio currently playing
+            // Multiple responses can queue automatically
+            if (this.session && this.session.transport && this.session.transport.send) {
+              this.session.transport.send({
+                type: 'response.create'
+              });
+            }
+          } else if (!this.fullDuplexMode) {
             this.updateStatus('translating', 'Elaborazione...');
           }
           break;
