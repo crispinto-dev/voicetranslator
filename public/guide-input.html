@@ -394,8 +394,27 @@
               }, 100);
               break;
 
+            case 'conversation.item.created':
+              // Check if this is an assistant message with text content
+              if (event.item?.role === 'assistant' && event.item?.content) {
+                for (const content of event.item.content) {
+                  if (content.type === 'text' && content.text) {
+                    console.log('[Guide] Got translated text:', content.text);
+                    this.pendingText += content.text;
+                    this.considerSendingChunk(false);
+                  }
+                  // Also try audio transcript
+                  if (content.type === 'audio' && content.transcript) {
+                    console.log('[Guide] Got audio transcript:', content.transcript);
+                    this.pendingText += content.transcript;
+                    this.considerSendingChunk(false);
+                  }
+                }
+              }
+              break;
+
             case 'response.audio_transcript.delta':
-              // Accumulate translated text
+              console.log('[Guide] Audio transcript delta:', event.delta);
               if (event.delta) {
                 this.pendingText += event.delta;
                 this.considerSendingChunk(false);
@@ -403,15 +422,15 @@
               break;
 
             case 'response.audio_transcript.done':
-              // Final translation text
+              console.log('[Guide] Audio transcript done:', event.transcript);
               if (event.transcript) {
                 this.pendingText = event.transcript;
-                this.considerSendingChunk(true); // Force send
+                this.considerSendingChunk(true);
               }
               break;
 
             case 'response.done':
-              console.log('[Guide] Response complete');
+              console.log('[Guide] Response complete, pending text:', this.pendingText);
               this.considerSendingChunk(true); // Force send any remaining
               this.updateStatus('active', '✅ Pronto');
               break;
