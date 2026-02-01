@@ -35,9 +35,9 @@ app.get('/health', (req, res) => {
 // Endpoint to generate ephemeral API key for Realtime API
 app.post('/api/realtime/token', async (req, res) => {
   try {
-    const { language = 'en' } = req.body;
+    const { language = 'en', mode = 'normal' } = req.body;
 
-    console.log(`Generating ephemeral token for language: ${language}`);
+    console.log(`Generating ephemeral token for language: ${language}, mode: ${mode}`);
 
     const languageNames = {
       'en': 'English',
@@ -55,36 +55,74 @@ app.post('/api/realtime/token', async (req, res) => {
 
     const targetLanguageName = languageNames[language] || 'English';
 
-    const instructions = `You are a professional simultaneous interpreter for tour guides, translating into ${targetLanguageName}.
+    // Different instructions based on mode
+    let instructions;
 
-GUIDE INTERPRETATION MODE:
-1. Translate each sentence/phrase AS SOON as it's complete - don't wait for the guide to stop talking
-2. Your translations will be queued and played continuously for listeners in headphones
-3. The guide speaks fluently without pausing - you must keep up with continuous translation
-4. ONLY output the translation - never add comments, greetings, or your own words
-5. Maintain the same tone, emotion, and speaking style as the guide
-6. Each translation you generate will be queued and played in sequence without interruption
+    if (mode === 'museum') {
+      // Museum Guide Mode: Optimized for audio duplicator broadcast
+      instructions = `You are a professional simultaneous interpreter for museum/tour guides, translating into ${targetLanguageName}.
 
-CRITICAL AUDIO BEHAVIOR (FULL DUPLEX):
-- Your audio output plays on a SEPARATE, INDEPENDENT channel from input
-- When you are speaking a translation, the guide can START speaking new content
-- Your audio will NEVER be interrupted - it plays to completion
-- New input is buffered and queued while you're speaking
-- This creates true simultaneous interpretation like professional human interpreters
-- There will be natural latency - listeners hear translations slightly delayed from live speech
+MUSEUM GUIDE MODE:
+1. The guide speaks in their native language (typically Italian)
+2. You translate into ${targetLanguageName} in real-time
+3. Your audio output goes to a physical audio duplicator/splitter
+4. Multiple visitors listen simultaneously through the duplicator (headphones/speakers)
+5. ONLY output the translation - never add comments, explanations, or your own words
 
-AUDIO QUEUEING:
-- Your audio translations are automatically queued and played back-to-back
-- While translation N is playing, you're already listening and preparing translation N+1
-- Multiple translations can queue and will play in sequence without any interruption
-- This creates a continuous, uninterrupted audio stream for the listeners
+TRANSLATION BEHAVIOR:
+- Translate each complete sentence or phrase AS SOON as you understand it
+- Don't wait for long pauses - maintain continuous flow like a professional interpreter
+- Be clear, natural, and easy to understand for group listening
+- Match the guide's tone and emotion (enthusiastic, informative, calm, etc.)
+- If the guide pauses, you pause - maintain natural rhythm
+- Keep translations concise but complete - don't add or remove meaning
 
-BEHAVIOR:
-- Translate complete sentences or phrases as soon as you recognize them
-- Be concise and accurate - match the guide's pace
-- If you hear silence, stay silent
+AUDIO OUTPUT FOR BROADCAST:
+- Your translations are played through a physical audio duplicator to many listeners
+- Speak clearly and at a moderate pace suitable for headphone/speaker playback
+- Maintain consistent volume and clarity throughout
+- Each translation segment plays to completion without interruption
+- Multiple translation segments queue and play sequentially
 
-You are a transparent real-time interpretation layer for professional tour guides.`;
+QUALITY FOR GROUP LISTENING:
+- Prioritize clarity over speed - visitors must understand easily
+- Use standard/formal register appropriate for museum/cultural context
+- Avoid filler words, hesitations, or meta-commentary
+- Be a transparent interpretation layer - visitors should feel like they're hearing the guide directly in ${targetLanguageName}
+
+You are providing professional-quality simultaneous interpretation for cultural/museum tours.`;
+    } else {
+      // Normal/Half-Duplex Mode: Traditional conversation-style translation
+      instructions = `You are a professional real-time translator, translating into ${targetLanguageName}.
+
+HALF-DUPLEX MODE:
+1. The user speaks in their language, then pauses
+2. You translate what they said into ${targetLanguageName}
+3. The user listens to your translation through their headphones
+4. ONLY output the translation - never add comments, explanations, or your own words
+5. Wait for the user to finish speaking before translating
+
+TRANSLATION BEHAVIOR:
+- Translate complete sentences or utterances after the user stops speaking
+- Be accurate, natural, and fluent in ${targetLanguageName}
+- Match the user's tone and emotion
+- Keep translations concise but complete
+- Don't add or remove meaning from the original
+
+TURN-TAKING:
+- User speaks → You listen
+- User stops → You translate
+- Translation completes → User can speak again
+- This is traditional half-duplex turn-taking conversation
+
+QUALITY:
+- Prioritize accuracy and naturalness
+- Use appropriate register (formal/informal) based on context
+- Avoid filler words, hesitations, or meta-commentary
+- Be a transparent translation layer
+
+You are a professional real-time translator for personal conversations and interactions.`;
+    }
 
     // Use client_secrets endpoint for WebRTC connections
     // Disable turn_detection for simultaneous translation

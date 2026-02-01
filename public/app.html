@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Traduzione vocale in tempo reale con riconoscimento vocale e sintesi vocale">
+  <meta name="theme-color" content="#00ff88">
+  <title>Voice Translator Real-Time</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="/manifest.json">
+
+  <!-- Icons -->
+  <link rel="icon" type="image/svg+xml" href="/icon-192.svg">
+  <link rel="apple-touch-icon" href="/icon-192.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🌐 Voice Translator</h1>
+      <p class="subtitle">Traduzione vocale in tempo reale</p>
+    </header>
+
+    <main>
+      <!-- Status Section -->
+      <div class="status-section">
+        <div class="status-indicator" id="statusIndicator"></div>
+        <span class="status-text" id="statusText">Pronto</span>
+      </div>
+
+      <!-- Language Selection -->
+      <div class="language-section">
+        <label for="languageSelect">Traduci in:</label>
+        <select id="languageSelect" class="language-select">
+          <option value="en">Inglese</option>
+          <option value="it">Italiano</option>
+          <option value="es">Spagnolo</option>
+          <option value="fr">Francese</option>
+          <option value="de">Tedesco</option>
+          <option value="pt">Portoghese</option>
+          <option value="zh">Cinese</option>
+          <option value="ja">Giapponese</option>
+          <option value="ko">Coreano</option>
+          <option value="ar">Arabo</option>
+          <option value="ru">Russo</option>
+        </select>
+      </div>
+
+      <!-- Full Duplex Mode Toggle -->
+      <div class="mode-toggle-section">
+        <label class="switch">
+          <input type="checkbox" id="fullDuplexToggle">
+          <span class="slider"></span>
+        </label>
+        <label for="fullDuplexToggle" class="mode-label">
+          <strong>Modalità Full Duplex</strong>
+          <small>Traduzione simultanea mentre parli</small>
+        </label>
+      </div>
+
+      <!-- Control Button -->
+      <div class="control-section">
+        <button id="startButton" class="start-button">Avvia Traduzione</button>
+        <div class="file-test-section">
+          <input type="file" id="audioFileInput" accept=".mp3,.wav,.webm,.m4a,.ogg" style="display: none;">
+          <button id="testFileButton" class="test-file-button">Test con file audio</button>
+        </div>
+      </div>
+
+      <!-- Transcription Display -->
+      <div class="transcription-section">
+        <div class="transcription-box">
+          <h3>Originale</h3>
+          <div class="text-display" id="originalText">Inizia a parlare...</div>
+        </div>
+
+        <div class="arrow">→</div>
+
+        <div class="transcription-box">
+          <h3>Traduzione</h3>
+          <div class="text-display" id="translatedText">La traduzione apparirà qui...</div>
+        </div>
+      </div>
+
+      <!-- Info Section -->
+      <div class="info-section">
+        <p>
+          <strong>Come usare:</strong><br>
+          1. Seleziona la lingua di destinazione<br>
+          2. Clicca "Avvia Traduzione"<br>
+          3. Parla chiaramente nel microfono<br>
+          4. Ascolta la traduzione
+        </p>
+        <p class="note">
+          Nota: Il volume del microfono viene automaticamente ridotto durante la riproduzione della traduzione per evitare l'eco.
+        </p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scripts - Vite handles module bundling -->
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

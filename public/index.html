@@ -3,107 +3,240 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Traduzione vocale in tempo reale con riconoscimento vocale e sintesi vocale">
-  <meta name="theme-color" content="#00ff88">
-  <title>Voice Translator Real-Time</title>
+  <title>Voice Translator - Scegli Modalità</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
-  <!-- PWA manifest -->
-  <link rel="manifest" href="/manifest.json">
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
 
-  <!-- Icons -->
-  <link rel="icon" type="image/svg+xml" href="/icon-192.svg">
-  <link rel="apple-touch-icon" href="/icon-192.svg">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
+    .container {
+      max-width: 900px;
+      width: 100%;
+    }
 
-  <!-- Styles -->
-  <link rel="stylesheet" href="/styles.css">
+    h1 {
+      color: white;
+      text-align: center;
+      margin-bottom: 15px;
+      font-size: 36px;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .subtitle {
+      color: rgba(255, 255, 255, 0.9);
+      text-align: center;
+      margin-bottom: 40px;
+      font-size: 16px;
+    }
+
+    .modes {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 25px;
+    }
+
+    .mode-card {
+      background: white;
+      border-radius: 20px;
+      padding: 35px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      transition: transform 0.3s, box-shadow 0.3s;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+
+    .mode-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4);
+    }
+
+    .mode-card.half-duplex {
+      border-top: 5px solid #667eea;
+    }
+
+    .mode-card.museum {
+      border-top: 5px solid #10b981;
+    }
+
+    .mode-icon {
+      font-size: 48px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .mode-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .mode-card.half-duplex .mode-title {
+      color: #667eea;
+    }
+
+    .mode-card.museum .mode-title {
+      color: #10b981;
+    }
+
+    .mode-description {
+      color: #666;
+      line-height: 1.6;
+      margin-bottom: 20px;
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .mode-features {
+      list-style: none;
+      margin: 20px 0;
+    }
+
+    .mode-features li {
+      padding: 8px 0;
+      color: #555;
+      font-size: 13px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .mode-features li::before {
+      content: "✓";
+      color: #10b981;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .mode-card.half-duplex .mode-features li::before {
+      color: #667eea;
+    }
+
+    .mode-use-case {
+      background: #f9fafb;
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 20px;
+      border-left: 3px solid #e5e7eb;
+    }
+
+    .mode-use-case strong {
+      display: block;
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .mode-use-case p {
+      font-size: 13px;
+      color: #374151;
+      line-height: 1.5;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 13px;
+    }
+
+    .footer a {
+      color: white;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 768px) {
+      .modes {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 28px;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>🌐 Voice Translator</h1>
-      <p class="subtitle">Traduzione vocale in tempo reale</p>
-    </header>
+    <h1>🎙️ Voice Translator</h1>
+    <p class="subtitle">Scegli la modalità di traduzione più adatta alle tue esigenze</p>
 
-    <main>
-      <!-- Status Section -->
-      <div class="status-section">
-        <div class="status-indicator" id="statusIndicator"></div>
-        <span class="status-text" id="statusText">Pronto</span>
-      </div>
-
-      <!-- Language Selection -->
-      <div class="language-section">
-        <label for="languageSelect">Traduci in:</label>
-        <select id="languageSelect" class="language-select">
-          <option value="en">Inglese</option>
-          <option value="it">Italiano</option>
-          <option value="es">Spagnolo</option>
-          <option value="fr">Francese</option>
-          <option value="de">Tedesco</option>
-          <option value="pt">Portoghese</option>
-          <option value="zh">Cinese</option>
-          <option value="ja">Giapponese</option>
-          <option value="ko">Coreano</option>
-          <option value="ar">Arabo</option>
-          <option value="ru">Russo</option>
-        </select>
-      </div>
-
-      <!-- Full Duplex Mode Toggle -->
-      <div class="mode-toggle-section">
-        <label class="switch">
-          <input type="checkbox" id="fullDuplexToggle">
-          <span class="slider"></span>
-        </label>
-        <label for="fullDuplexToggle" class="mode-label">
-          <strong>Modalità Full Duplex</strong>
-          <small>Traduzione simultanea mentre parli</small>
-        </label>
-      </div>
-
-      <!-- Control Button -->
-      <div class="control-section">
-        <button id="startButton" class="start-button">Avvia Traduzione</button>
-        <div class="file-test-section">
-          <input type="file" id="audioFileInput" accept=".mp3,.wav,.webm,.m4a,.ogg" style="display: none;">
-          <button id="testFileButton" class="test-file-button">Test con file audio</button>
-        </div>
-      </div>
-
-      <!-- Transcription Display -->
-      <div class="transcription-section">
-        <div class="transcription-box">
-          <h3>Originale</h3>
-          <div class="text-display" id="originalText">Inizia a parlare...</div>
-        </div>
-
-        <div class="arrow">→</div>
-
-        <div class="transcription-box">
-          <h3>Traduzione</h3>
-          <div class="text-display" id="translatedText">La traduzione apparirà qui...</div>
-        </div>
-      </div>
-
-      <!-- Info Section -->
-      <div class="info-section">
-        <p>
-          <strong>Come usare:</strong><br>
-          1. Seleziona la lingua di destinazione<br>
-          2. Clicca "Avvia Traduzione"<br>
-          3. Parla chiaramente nel microfono<br>
-          4. Ascolta la traduzione
+    <div class="modes">
+      <!-- Half Duplex Mode -->
+      <a href="/app.html" class="mode-card half-duplex">
+        <div class="mode-icon">🎧</div>
+        <h2 class="mode-title">Half Duplex</h2>
+        <p class="mode-description">
+          Modalità conversazione personale con traduzione a turni
         </p>
-        <p class="note">
-          Nota: Il volume del microfono viene automaticamente ridotto durante la riproduzione della traduzione per evitare l'eco.
+
+        <ul class="mode-features">
+          <li>Un solo dispositivo (microfono + cuffie)</li>
+          <li>Parli → Pausa → Ascolti traduzione</li>
+          <li>Traduzione bidirezionale</li>
+          <li>Ideale per conversazioni 1-a-1</li>
+          <li>Cambio lingua in tempo reale</li>
+        </ul>
+
+        <div class="mode-use-case">
+          <strong>Casi d'uso:</strong>
+          <p>
+            Conversazioni personali, chiamate, apprendimento lingue,
+            traduzione di audio/video, utilizzo individuale
+          </p>
+        </div>
+      </a>
+
+      <!-- Museum Guide Mode -->
+      <a href="/guide.html" class="mode-card museum">
+        <div class="mode-icon">🏛️</div>
+        <h2 class="mode-title">Guida Museo</h2>
+        <p class="mode-description">
+          Modalità professionale per visite guidate con duplicatore audio
         </p>
-      </div>
-    </main>
+
+        <ul class="mode-features">
+          <li>Device singolo con output broadcast</li>
+          <li>Traduzione continua in tempo reale</li>
+          <li>Output verso duplicatore audio fisico</li>
+          <li>Multipli visitatori con cuffie</li>
+          <li>Audio locale opzionalmente silenziato</li>
+        </ul>
+
+        <div class="mode-use-case">
+          <strong>Casi d'uso:</strong>
+          <p>
+            Tour museali, visite guidate, conferenze, eventi,
+            presentazioni multilingua con splitter/trasmettitore audio
+          </p>
+        </div>
+      </a>
+    </div>
+
+    <div class="footer">
+      Powered by <a href="https://openai.com" target="_blank">OpenAI Realtime API</a>
+    </div>
   </div>
-
-  <!-- Scripts - Vite handles module bundling -->
-  <script type="module" src="/app.js"></script>
 </body>
 </html>

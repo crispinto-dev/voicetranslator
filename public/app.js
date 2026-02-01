@@ -96,7 +96,8 @@ class VoiceTranslator {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          language: this.targetLanguage
+          language: this.targetLanguage,
+          mode: 'normal'  // Half-duplex mode
         })
       });
 
