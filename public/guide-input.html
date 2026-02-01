@@ -310,9 +310,8 @@
           // Create session with manual turn-taking and output transcription
           const sessionConfig = {
             model: 'gpt-4o-realtime-preview-2024-12-17',
-            modalities: ['text', 'audio'],
+            // Use audio modality with transcription
             inputAudioTranscription: { model: 'whisper-1' },
-            outputAudioTranscription: { model: 'whisper-1' },  // Get translated text
             config: {
               turnDetection: {
                 type: 'server_vad',
@@ -386,10 +385,17 @@
               console.log('[Guide] Speech stopped, triggering response');
               this.updateStatus('active', '🔄 Traduzione...');
 
-              // Trigger manual response
+              // Trigger manual response with output transcription
               setTimeout(() => {
                 if (this.session?.transport?.send) {
-                  this.session.transport.send({ type: 'response.create' });
+                  this.session.transport.send({
+                    type: 'response.create',
+                    response: {
+                      modalities: ['text', 'audio'],
+                      output_audio_format: 'pcm16'
+                    }
+                  });
+                  console.log('[Guide] Requested response with text modality');
                 }
               }, 100);
               break;
