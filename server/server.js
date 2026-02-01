@@ -207,6 +207,78 @@ You are a transparent translation layer - the user should feel like they're hear
   res.json({ instructions });
 });
 
+// ==========================================
+// SSE ENDPOINTS FOR DUAL DEVICE MODE
+// ==========================================
+
+let currentClient = null;
+let globalEventId = 0;
+
+function sseHeaders(res) {
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+}
+
+function sseSend(res, { id, event, data }) {
+  if (id != null) res.write(`id: ${id}\n`);
+  if (event) res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+// Ricevitore: SSE (un solo client)
+app.get("/sse", (req, res) => {
+  const lang = (req.query.lang || "en").toString().toLowerCase();
+  console.log(`[SSE] Receiver connected with language: ${lang}`);
+
+  sseHeaders(res);
+  currentClient = { res, lang };
+  sseSend(res, { id: ++globalEventId, event: "hello", data: { lang } });
+
+  const hb = setInterval(() => {
+    try {
+      sseSend(res, { event: "ping", data: { t: Date.now() } });
+    } catch (e) {
+      console.error('[SSE] Heartbeat error:', e);
+    }
+  }, 15000);
+
+  req.on("close", () => {
+    console.log('[SSE] Receiver disconnected');
+    clearInterval(hb);
+    currentClient = null;
+  });
+});
+
+// Ingest: riceve chunk dalla guida
+app.post("/ingest", (req, res) => {
+  const { text, ts, seq } = req.body || {};
+
+  if (!text) {
+    return res.status(400).json({ ok: false, error: 'Missing text' });
+  }
+
+  console.log(`[Ingest] Received chunk (seq: ${seq}): "${text.substring(0, 50)}..."`);
+
+  if (currentClient) {
+    try {
+      sseSend(currentClient.res, {
+        id: ++globalEventId,
+        event: "chunk",
+        data: { text, ts: ts ?? Date.now(), seq }
+      });
+      console.log(`[Ingest] Sent to receiver`);
+    } catch (e) {
+      console.error('[Ingest] Error sending to receiver:', e);
+    }
+  } else {
+    console.log(`[Ingest] No receiver connected, dropping chunk`);
+  }
+
+  res.json({ ok: true, hasReceiver: currentClient !== null });
+});
+
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log('OpenAI API Key:', process.env.OPENAI_API_KEY ? 'Set' : 'Missing');

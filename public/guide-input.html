@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guida - Dual Device Mode</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: #666;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .info-box {
+      background: #fef3c7;
+      border-left: 4px solid #f59e0b;
+      padding: 15px;
+      margin-bottom: 25px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #92400e;
+      line-height: 1.6;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      color: #555;
+      font-weight: 500;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 16px;
+      background: white;
+    }
+
+    select:focus {
+      outline: none;
+      border-color: #f59e0b;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-top: 10px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+    }
+
+    .btn-primary:disabled {
+      background: #d1d5db;
+      cursor: not-allowed;
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .status {
+      text-align: center;
+      padding: 12px;
+      border-radius: 10px;
+      margin-top: 20px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .status.inactive { background: #f3f4f6; color: #6b7280; }
+    .status.connecting { background: #fef3c7; color: #92400e; }
+    .status.active { background: #d1fae5; color: #065f46; }
+    .status.listening { background: #dbeafe; color: #1e40af; }
+
+    .hidden { display: none; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .stat-box {
+      background: #f9fafb;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #6b7280;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: #f59e0b;
+    }
+
+    .transcript {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f9fafb;
+      border-radius: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .transcript h3 {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    .transcript p {
+      font-size: 13px;
+      color: #333;
+      line-height: 1.6;
+      margin: 5px 0;
+      padding: 8px;
+      background: white;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎤 Guida - Input</h1>
+    <p class="subtitle">Dual Device Mode - Device Guida</p>
+
+    <div class="info-box">
+      <strong>⚠️ Importante:</strong> Questa è la pagina per la GUIDA.<br>
+      Sul device ricevitore, apri <strong>/visitor.html</strong>
+    </div>
+
+    <div id="setupForm">
+      <div class="form-group">
+        <label for="targetLanguage">🌍 Lingua Traduzione</label>
+        <select id="targetLanguage">
+          <option value="en">English</option>
+          <option value="es">Español</option>
+          <option value="fr">Français</option>
+          <option value="de">Deutsch</option>
+          <option value="pt">Português</option>
+          <option value="zh">中文</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="ar">العربية</option>
+          <option value="ru">Русский</option>
+        </select>
+      </div>
+
+      <button class="btn btn-primary" id="startBtn">
+        Avvia Modalità Guida
+      </button>
+    </div>
+
+    <div id="activeSession" class="hidden">
+      <div class="status inactive" id="status">Inattivo</div>
+
+      <div class="stats">
+        <div class="stat-box">
+          <div class="stat-label">Chunk Inviati</div>
+          <div class="stat-value" id="chunksSent">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Ricevitore</div>
+          <div class="stat-value" id="receiverStatus">🔴</div>
+        </div>
+      </div>
+
+      <div class="transcript">
+        <h3>Traduzione Inviata</h3>
+        <div id="transcriptLog"></div>
+      </div>
+
+      <button class="btn btn-danger" id="stopBtn">
+        Termina Sessione
+      </button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { RealtimeAgent, RealtimeSession } from '@openai/agents-realtime';
+
+    class GuideInput {
+      constructor() {
+        this.session = null;
+        this.agent = null;
+        this.isRunning = false;
+        this.targetLanguage = 'en';
+        this.chunksSent = 0;
+        this.sequenceNumber = 0;
+        this.pendingText = '';
+        this.lastSendTime = 0;
+
+        this.initializeUI();
+      }
+
+      initializeUI() {
+        this.setupForm = document.getElementById('setupForm');
+        this.activeSession = document.getElementById('activeSession');
+        this.status = document.getElementById('status');
+        this.chunksSentEl = document.getElementById('chunksSent');
+        this.receiverStatusEl = document.getElementById('receiverStatus');
+        this.transcriptLog = document.getElementById('transcriptLog');
+        this.targetLanguageSelect = document.getElementById('targetLanguage');
+        this.startBtn = document.getElementById('startBtn');
+        this.stopBtn = document.getElementById('stopBtn');
+
+        this.startBtn.addEventListener('click', () => this.start());
+        this.stopBtn.addEventListener('click', () => this.stop());
+      }
+
+      async start() {
+        try {
+          this.targetLanguage = this.targetLanguageSelect.value;
+          this.startBtn.disabled = true;
+          this.updateStatus('connecting', '⏳ Connessione...');
+
+          // Get token
+          const tokenResponse = await fetch('/api/realtime/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              language: this.targetLanguage,
+              mode: 'museum'
+            })
+          });
+
+          if (!tokenResponse.ok) {
+            throw new Error('Failed to get token');
+          }
+
+          const { token, instructions } = await tokenResponse.json();
+          console.log('[Guide] Token received');
+
+          // Create agent
+          this.agent = new RealtimeAgent({
+            name: 'GuideTranslator',
+            instructions: instructions
+          });
+
+          // Create session with manual turn-taking and output transcription
+          const sessionConfig = {
+            model: 'gpt-4o-realtime-preview-2024-12-17',
+            modalities: ['text', 'audio'],
+            inputAudioTranscription: { model: 'whisper-1' },
+            outputAudioTranscription: { model: 'whisper-1' },  // Get translated text
+            config: {
+              turnDetection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefixPaddingMs: 300,
+                silenceDurationMs: 700,
+                createResponse: false,      // Manual response
+                interruptResponse: false    // No interruption
+              }
+            }
+          };
+
+          this.session = new RealtimeSession(this.agent, sessionConfig);
+          this.setupEventHandlers();
+
+          // Connect
+          await this.session.connect({ apiKey: token });
+          console.log('[Guide] Connected to OpenAI Realtime API');
+
+          // Mute all audio elements (no local playback)
+          setTimeout(() => {
+            document.querySelectorAll('audio').forEach(audio => {
+              audio.volume = 0;
+              audio.muted = true;
+            });
+          }, 500);
+
+          this.updateStatus('active', '✅ Attivo - Parla nel microfono');
+          this.setupForm.classList.add('hidden');
+          this.activeSession.classList.remove('hidden');
+          this.isRunning = true;
+
+        } catch (error) {
+          console.error('[Guide] Error:', error);
+          this.updateStatus('inactive', '❌ Errore: ' + error.message);
+          this.startBtn.disabled = false;
+          alert('Errore nella connessione. Riprova.');
+        }
+      }
+
+      async stop() {
+        if (this.session) {
+          await this.session.disconnect();
+          this.session = null;
+          this.agent = null;
+        }
+
+        this.setupForm.classList.remove('hidden');
+        this.activeSession.classList.add('hidden');
+        this.startBtn.disabled = false;
+        this.isRunning = false;
+        this.chunksSent = 0;
+        this.sequenceNumber = 0;
+        this.updateStatus('inactive', 'Terminato');
+        this.transcriptLog.innerHTML = '';
+      }
+
+      setupEventHandlers() {
+        if (!this.session) return;
+
+        this.session.on('transport_event', (event) => {
+          console.log('[Realtime Event]', event.type);
+
+          switch (event.type) {
+            case 'input_audio_buffer.speech_started':
+              console.log('[Guide] Speech detected');
+              this.updateStatus('listening', '🎤 Rilevata voce');
+              break;
+
+            case 'input_audio_buffer.speech_stopped':
+              console.log('[Guide] Speech stopped, triggering response');
+              this.updateStatus('active', '🔄 Traduzione...');
+
+              // Trigger manual response
+              setTimeout(() => {
+                if (this.session?.transport?.send) {
+                  this.session.transport.send({ type: 'response.create' });
+                }
+              }, 100);
+              break;
+
+            case 'response.audio_transcript.delta':
+              // Accumulate translated text
+              if (event.delta) {
+                this.pendingText += event.delta;
+                this.considerSendingChunk(false);
+              }
+              break;
+
+            case 'response.audio_transcript.done':
+              // Final translation text
+              if (event.transcript) {
+                this.pendingText = event.transcript;
+                this.considerSendingChunk(true); // Force send
+              }
+              break;
+
+            case 'response.done':
+              console.log('[Guide] Response complete');
+              this.considerSendingChunk(true); // Force send any remaining
+              this.updateStatus('active', '✅ Pronto');
+              break;
+
+            case 'error':
+              console.error('[Guide] Error:', event.error);
+              break;
+          }
+        });
+      }
+
+      considerSendingChunk(force = false) {
+        const now = Date.now();
+        const timeSinceLastSend = now - this.lastSendTime;
+        const shouldSend = force ||
+                          (this.pendingText.length >= 140 && timeSinceLastSend >= 800) ||
+                          (this.pendingText.length >= 80 && timeSinceLastSend >= 1200);
+
+        if (shouldSend && this.pendingText.trim()) {
+          this.sendChunk(this.pendingText.trim());
+          this.pendingText = '';
+          this.lastSendTime = now;
+        }
+      }
+
+      async sendChunk(text) {
+        if (!text) return;
+
+        const chunk = {
+          text: text,
+          ts: Date.now(),
+          seq: ++this.sequenceNumber
+        };
+
+        console.log(`[Guide] Sending chunk #${chunk.seq}:`, text.substring(0, 50) + '...');
+
+        try {
+          const response = await fetch('/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(chunk)
+          });
+
+          const result = await response.json();
+
+          if (result.ok) {
+            this.chunksSent++;
+            this.chunksSentEl.textContent = this.chunksSent;
+            this.receiverStatusEl.textContent = result.hasReceiver ? '🟢' : '🔴';
+            this.addToTranscript(text);
+          }
+        } catch (error) {
+          console.error('[Guide] Error sending chunk:', error);
+        }
+      }
+
+      addToTranscript(text) {
+        const p = document.createElement('p');
+        p.textContent = text;
+        this.transcriptLog.prepend(p);
+
+        // Keep only last 10 items
+        while (this.transcriptLog.children.length > 10) {
+          this.transcriptLog.removeChild(this.transcriptLog.lastChild);
+        }
+      }
+
+      updateStatus(state, text) {
+        this.status.className = 'status ' + state;
+        this.status.textContent = text;
+      }
+    }
+
+    // Initialize
+    const guide = new GuideInput();
+  </script>
+</body>
+</html>

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ricevitore - Dual Device Mode</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: #666;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .info-box {
+      background: #d1fae5;
+      border-left: 4px solid #10b981;
+      padding: 15px;
+      margin-bottom: 25px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #065f46;
+      line-height: 1.6;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      color: #555;
+      font-weight: 500;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 16px;
+      background: white;
+    }
+
+    select:focus {
+      outline: none;
+      border-color: #10b981;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+    }
+
+    .btn-primary:disabled {
+      background: #d1d5db;
+      cursor: not-allowed;
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .status {
+      text-align: center;
+      padding: 12px;
+      border-radius: 10px;
+      margin-top: 20px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .status.inactive { background: #f3f4f6; color: #6b7280; }
+    .status.connecting { background: #fef3c7; color: #92400e; }
+    .status.connected { background: #d1fae5; color: #065f46; }
+    .status.speaking { background: #dbeafe; color: #1e40af; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .stat-box {
+      background: #f9fafb;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #6b7280;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: #10b981;
+    }
+
+    .transcript {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f9fafb;
+      border-radius: 10px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+
+    .transcript h3 {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    .transcript p {
+      font-size: 13px;
+      color: #333;
+      line-height: 1.6;
+      margin: 5px 0;
+      padding: 8px;
+      background: white;
+      border-radius: 6px;
+    }
+
+    .warning {
+      background: #fef3c7;
+      border-left: 4px solid #f59e0b;
+      padding: 12px;
+      margin-top: 15px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #92400e;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔊 Ricevitore - Output</h1>
+    <p class="subtitle">Dual Device Mode - Device Ricevitore</p>
+
+    <div class="info-box">
+      <strong>📌 Connessione Audio:</strong><br>
+      Collega le cuffie/speaker di questo device allo splitter audio.
+      I visitatori ascolteranno dallo splitter.
+    </div>
+
+    <div class="form-group">
+      <label for="lang">🌍 Lingua Ricezione</label>
+      <select id="lang">
+        <option value="en">English</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+        <option value="pt">Português</option>
+        <option value="zh">中文</option>
+        <option value="ja">日本語</option>
+        <option value="ko">한국어</option>
+        <option value="ar">العربية</option>
+        <option value="ru">Русский</option>
+      </select>
+    </div>
+
+    <div class="controls">
+      <button class="btn btn-primary" id="start">▶ Avvia</button>
+      <button class="btn btn-danger" id="stop">⏹ Stop</button>
+    </div>
+
+    <div class="status inactive" id="status">Pronto</div>
+
+    <div class="stats">
+      <div class="stat-box">
+        <div class="stat-label">Chunk Ricevuti</div>
+        <div class="stat-value" id="chunksReceived">0</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">In Coda</div>
+        <div class="stat-value" id="queueSize">0</div>
+      </div>
+    </div>
+
+    <div class="transcript">
+      <h3>Testo Ricevuto</h3>
+      <div id="transcriptLog"></div>
+    </div>
+
+    <div class="warning">
+      ⚠️ Assicurati che la guida abbia avviato /guide-input.html
+    </div>
+  </div>
+
+  <script>
+    let es = null;
+    let queue = [];
+    let speaking = false;
+    let preferredVoice = null;
+    let chunksReceived = 0;
+
+    const statusEl = document.getElementById("status");
+    const transcriptLog = document.getElementById("transcriptLog");
+    const chunksReceivedEl = document.getElementById("chunksReceived");
+    const queueSizeEl = document.getElementById("queueSize");
+
+    function setStatus(className, text) {
+      statusEl.className = 'status ' + className;
+      statusEl.textContent = text;
+    }
+
+    function addTranscript(text) {
+      const p = document.createElement("p");
+      p.textContent = text;
+      transcriptLog.prepend(p);
+
+      // Keep only last 15 items
+      while (transcriptLog.children.length > 15) {
+        transcriptLog.removeChild(transcriptLog.lastChild);
+      }
+    }
+
+    function updateStats() {
+      chunksReceivedEl.textContent = chunksReceived;
+      queueSizeEl.textContent = queue.length + (speaking ? 1 : 0);
+    }
+
+    function pickVoice(lang) {
+      const voices = window.speechSynthesis.getVoices() || [];
+      return voices.find(v => (v.lang || "").toLowerCase().startsWith(lang)) || null;
+    }
+
+    async function warmupTTS(lang) {
+      return new Promise((resolve) => {
+        const tryPick = () => {
+          preferredVoice = pickVoice(lang);
+          console.log('[Visitor] Selected voice:', preferredVoice?.name || 'default', preferredVoice?.lang || lang);
+          resolve();
+        };
+        window.speechSynthesis.onvoiceschanged = tryPick;
+        tryPick();
+      });
+    }
+
+    function speakNext(lang) {
+      if (speaking || queue.length === 0) {
+        updateStats();
+        return;
+      }
+
+      const text = queue.shift();
+      const u = new SpeechSynthesisUtterance(text);
+
+      if (preferredVoice) u.voice = preferredVoice;
+      u.lang = preferredVoice?.lang || lang;
+      u.rate = 1.0;
+      u.pitch = 1.0;
+      u.volume = 1.0;
+
+      speaking = true;
+      setStatus('speaking', '🔊 Riproduzione...');
+      updateStats();
+
+      u.onend = () => {
+        speaking = false;
+        setTimeout(() => {
+          if (queue.length > 0) {
+            speakNext(lang);
+          } else {
+            setStatus('connected', '🟢 Connesso - In ascolto');
+          }
+        }, 80);
+      };
+
+      u.onerror = (e) => {
+        console.error('[Visitor] TTS error:', e);
+        speaking = false;
+        setTimeout(() => speakNext(lang), 80);
+      };
+
+      console.log('[Visitor] Speaking:', text.substring(0, 50) + '...');
+      window.speechSynthesis.speak(u);
+    }
+
+    function enqueueAndSpeak(text, lang) {
+      const cleaned = text.trim();
+      if (!cleaned) return;
+
+      // Limit queue size to prevent overflow
+      if (queue.length > 6) {
+        console.warn('[Visitor] Queue full, dropping oldest chunk');
+        queue.shift();
+      }
+
+      queue.push(cleaned);
+      addTranscript(cleaned);
+      chunksReceived++;
+      updateStats();
+      speakNext(lang);
+    }
+
+    function connectSSE(lang) {
+      if (es) es.close();
+
+      queue = [];
+      speaking = false;
+      window.speechSynthesis.cancel();
+      setStatus('connecting', '⏳ Connessione...');
+
+      es = new EventSource(`/sse?lang=${lang}`);
+
+      es.addEventListener("hello", (ev) => {
+        console.log('[Visitor] Connected to SSE');
+        setStatus('connected', '🟢 Connesso - In ascolto');
+      });
+
+      es.addEventListener("ping", () => {
+        // Heartbeat - keep connection alive
+      });
+
+      es.addEventListener("chunk", (ev) => {
+        const data = JSON.parse(ev.data);
+        console.log('[Visitor] Received chunk #' + data.seq);
+        enqueueAndSpeak(data.text, lang);
+      });
+
+      es.onerror = (e) => {
+        console.error('[Visitor] SSE error:', e);
+        setStatus('inactive', '🔴 Riconnessione...');
+
+        // Auto-reconnect after 3 seconds
+        setTimeout(() => {
+          if (es && es.readyState === EventSource.CLOSED) {
+            console.log('[Visitor] Attempting reconnection...');
+            connectSSE(lang);
+          }
+        }, 3000);
+      };
+    }
+
+    document.getElementById("start").onclick = async () => {
+      const lang = document.getElementById("lang").value;
+      console.log('[Visitor] Starting with language:', lang);
+
+      await warmupTTS(lang);
+      connectSSE(lang);
+
+      // iOS workaround: speak silent utterance to unlock audio
+      try {
+        const u = new SpeechSynthesisUtterance(" ");
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+      } catch (e) {
+        console.warn('[Visitor] Could not speak silent utterance:', e);
+      }
+    };
+
+    document.getElementById("stop").onclick = () => {
+      if (es) {
+        es.close();
+        es = null;
+      }
+
+      queue = [];
+      window.speechSynthesis.cancel();
+      speaking = false;
+      setStatus('inactive', '⏹ Stop');
+      chunksReceived = 0;
+      updateStats();
+    };
+  </script>
+</body>
+</html>

@@ -22,7 +22,7 @@
     }
 
     .container {
-      max-width: 900px;
+      max-width: 1200px;
       width: 100%;
     }
 
@@ -43,14 +43,14 @@
 
     .modes {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 25px;
     }
 
     .mode-card {
       background: white;
       border-radius: 20px;
-      padding: 35px;
+      padding: 30px;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
       transition: transform 0.3s, box-shadow 0.3s;
       cursor: pointer;
@@ -64,52 +64,60 @@
       box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4);
     }
 
-    .mode-card.half-duplex {
+    .mode-card.single {
       border-top: 5px solid #667eea;
     }
 
-    .mode-card.museum {
+    .mode-card.dual-guide {
+      border-top: 5px solid #f59e0b;
+    }
+
+    .mode-card.dual-receiver {
       border-top: 5px solid #10b981;
     }
 
     .mode-icon {
-      font-size: 48px;
+      font-size: 42px;
       text-align: center;
-      margin-bottom: 20px;
+      margin-bottom: 15px;
     }
 
     .mode-title {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 600;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       text-align: center;
     }
 
-    .mode-card.half-duplex .mode-title {
+    .mode-card.single .mode-title {
       color: #667eea;
     }
 
-    .mode-card.museum .mode-title {
+    .mode-card.dual-guide .mode-title {
+      color: #f59e0b;
+    }
+
+    .mode-card.dual-receiver .mode-title {
       color: #10b981;
     }
 
     .mode-description {
       color: #666;
-      line-height: 1.6;
-      margin-bottom: 20px;
-      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 15px;
+      font-size: 13px;
       text-align: center;
     }
 
     .mode-features {
       list-style: none;
-      margin: 20px 0;
+      margin: 15px 0;
     }
 
     .mode-features li {
-      padding: 8px 0;
+      padding: 6px 0;
       color: #555;
-      font-size: 13px;
+      font-size: 12px;
       display: flex;
       align-items: flex-start;
       gap: 8px;
@@ -117,36 +125,43 @@
 
     .mode-features li::before {
       content: "✓";
-      color: #10b981;
       font-weight: bold;
       flex-shrink: 0;
     }
 
-    .mode-card.half-duplex .mode-features li::before {
+    .mode-card.single .mode-features li::before {
       color: #667eea;
+    }
+
+    .mode-card.dual-guide .mode-features li::before {
+      color: #f59e0b;
+    }
+
+    .mode-card.dual-receiver .mode-features li::before {
+      color: #10b981;
     }
 
     .mode-use-case {
       background: #f9fafb;
-      padding: 15px;
-      border-radius: 10px;
-      margin-top: 20px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 15px;
       border-left: 3px solid #e5e7eb;
     }
 
     .mode-use-case strong {
       display: block;
-      font-size: 12px;
+      font-size: 11px;
       color: #6b7280;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
     .mode-use-case p {
-      font-size: 13px;
+      font-size: 12px;
       color: #374151;
-      line-height: 1.5;
+      line-height: 1.4;
     }
 
     .footer {
@@ -166,7 +181,7 @@
       text-decoration: underline;
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 968px) {
       .modes {
         grid-template-columns: 1fr;
       }
@@ -183,52 +198,77 @@
     <p class="subtitle">Scegli la modalità di traduzione più adatta alle tue esigenze</p>
 
     <div class="modes">
-      <!-- Half Duplex Mode -->
-      <a href="/app.html" class="mode-card half-duplex">
+      <!-- Single Device Mode -->
+      <a href="/app.html" class="mode-card single">
         <div class="mode-icon">🎧</div>
-        <h2 class="mode-title">Half Duplex</h2>
+        <h2 class="mode-title">Single Device</h2>
         <p class="mode-description">
-          Modalità conversazione personale con traduzione a turni
+          Half-duplex: un dispositivo per parlare e ascoltare
         </p>
 
         <ul class="mode-features">
-          <li>Un solo dispositivo (microfono + cuffie)</li>
+          <li>Un solo dispositivo</li>
           <li>Parli → Pausa → Ascolti traduzione</li>
           <li>Traduzione bidirezionale</li>
-          <li>Ideale per conversazioni 1-a-1</li>
           <li>Cambio lingua in tempo reale</li>
+          <li>Ideale per uso personale</li>
         </ul>
 
         <div class="mode-use-case">
           <strong>Casi d'uso:</strong>
           <p>
             Conversazioni personali, chiamate, apprendimento lingue,
-            traduzione di audio/video, utilizzo individuale
+            utilizzo individuale
           </p>
         </div>
       </a>
 
-      <!-- Museum Guide Mode -->
-      <a href="/guide.html" class="mode-card museum">
-        <div class="mode-icon">🏛️</div>
-        <h2 class="mode-title">Guida Museo</h2>
+      <!-- Dual Device - Guide -->
+      <a href="/guide-input.html" class="mode-card dual-guide">
+        <div class="mode-icon">🎤</div>
+        <h2 class="mode-title">Dual Device - Guida</h2>
         <p class="mode-description">
-          Modalità professionale per visite guidate con duplicatore audio
+          Device per la guida: solo input microfono (IT → EN/altre)
         </p>
 
         <ul class="mode-features">
-          <li>Device singolo con output broadcast</li>
-          <li>Traduzione continua in tempo reale</li>
-          <li>Output verso duplicatore audio fisico</li>
-          <li>Multipli visitatori con cuffie</li>
-          <li>Audio locale opzionalmente silenziato</li>
+          <li>Solo input microfono</li>
+          <li>Traduzione in tempo reale (testo)</li>
+          <li>Invia chunk al ricevitore via backend</li>
+          <li>Nessun audio locale</li>
+          <li>Lingua sorgente: Italiano</li>
         </ul>
 
         <div class="mode-use-case">
-          <strong>Casi d'uso:</strong>
+          <strong>Setup richiesto:</strong>
           <p>
-            Tour museali, visite guidate, conferenze, eventi,
-            presentazioni multilingua con splitter/trasmettitore audio
+            Device guida (questo) + Device ricevitore separato.
+            La guida parla, il ricevitore ascolta via TTS
+          </p>
+        </div>
+      </a>
+
+      <!-- Dual Device - Receiver -->
+      <a href="/visitor.html" class="mode-card dual-receiver">
+        <div class="mode-icon">🔊</div>
+        <h2 class="mode-title">Dual Device - Ricevitore</h2>
+        <p class="mode-description">
+          Device ricevitore: solo output audio via TTS locale
+        </p>
+
+        <ul class="mode-features">
+          <li>Riceve testo tradotto via SSE</li>
+          <li>TTS locale (Web Speech API)</li>
+          <li>Output audio su cuffie</li>
+          <li>Splitter per multipli visitatori</li>
+          <li>Selezione lingua target</li>
+        </ul>
+
+        <div class="mode-use-case">
+          <strong>Setup richiesto:</strong>
+          <p>
+            Device ricevitore collegato a splitter audio.
+            I visitatori ascoltano dalle cuffie collegate
           </p>
         </div>
       </a>
