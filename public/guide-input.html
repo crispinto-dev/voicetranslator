@@ -331,6 +331,20 @@
           await this.session.connect({ apiKey: token });
           console.log('[Guide] Connected to OpenAI Realtime API');
 
+          // CRITICAL: Enable output audio transcription via session.update
+          // This ensures we get response.audio_transcript.* events
+          setTimeout(() => {
+            if (this.session?.transport?.send) {
+              this.session.transport.send({
+                type: 'session.update',
+                session: {
+                  output_audio_transcription: { model: 'whisper-1' }
+                }
+              });
+              console.log('[Guide] Enabled output audio transcription');
+            }
+          }, 200);
+
           // Mute all audio elements (no local playback)
           setTimeout(() => {
             document.querySelectorAll('audio').forEach(audio => {
@@ -373,7 +387,9 @@
         if (!this.session) return;
 
         this.session.on('transport_event', (event) => {
-          console.log('[Realtime Event]', event.type);
+          // Log ALL events for debugging (first 200 chars)
+          const eventStr = JSON.stringify(event).substring(0, 200);
+          console.log('[Realtime Event]', event.type, eventStr);
 
           switch (event.type) {
             case 'input_audio_buffer.speech_started':
@@ -385,42 +401,40 @@
               console.log('[Guide] Speech stopped, triggering response');
               this.updateStatus('active', '🔄 Traduzione...');
 
-              // Trigger manual response with output transcription
+              // Trigger manual response - audio+text to get transcript events
               setTimeout(() => {
                 if (this.session?.transport?.send) {
                   this.session.transport.send({
                     type: 'response.create',
                     response: {
-                      modalities: ['text', 'audio'],
-                      output_audio_format: 'pcm16'
+                      modalities: ['audio', 'text']  // Audio + text for reliable transcript
                     }
                   });
-                  console.log('[Guide] Requested response with text modality');
+                  console.log('[Guide] Requested audio+text response with transcription');
                 }
               }, 100);
               break;
 
-            case 'conversation.item.created':
-              // Check if this is an assistant message with text content
-              if (event.item?.role === 'assistant' && event.item?.content) {
-                for (const content of event.item.content) {
-                  if (content.type === 'text' && content.text) {
-                    console.log('[Guide] Got translated text:', content.text);
-                    this.pendingText += content.text;
-                    this.considerSendingChunk(false);
-                  }
-                  // Also try audio transcript
-                  if (content.type === 'audio' && content.transcript) {
-                    console.log('[Guide] Got audio transcript:', content.transcript);
-                    this.pendingText += content.transcript;
-                    this.considerSendingChunk(false);
-                  }
-                }
+            // Primary text events (ideal case)
+            case 'response.text.delta':
+              console.log('[Guide] ✅ Text delta:', event.delta);
+              if (event.delta) {
+                this.pendingText += event.delta;
+                this.considerSendingChunk(false);
               }
               break;
 
+            case 'response.text.done':
+              console.log('[Guide] ✅ Text done:', event.text);
+              if (event.text) {
+                this.pendingText = event.text;
+                this.considerSendingChunk(true);
+              }
+              break;
+
+            // Fallback: audio_transcript events (SDK might use these instead)
             case 'response.audio_transcript.delta':
-              console.log('[Guide] Audio transcript delta:', event.delta);
+              console.log('[Guide] 🔄 Fallback audio_transcript.delta:', event.delta);
               if (event.delta) {
                 this.pendingText += event.delta;
                 this.considerSendingChunk(false);
@@ -428,10 +442,23 @@
               break;
 
             case 'response.audio_transcript.done':
-              console.log('[Guide] Audio transcript done:', event.transcript);
+              console.log('[Guide] 🔄 Fallback audio_transcript.done:', event.transcript);
               if (event.transcript) {
                 this.pendingText = event.transcript;
                 this.considerSendingChunk(true);
+              }
+              break;
+
+            // Alternative: conversation.item with text content
+            case 'conversation.item.created':
+              if (event.item?.role === 'assistant') {
+                console.log('[Guide] 🔄 Fallback conversation.item.created');
+                const textContent = event.item.content?.find(c => c.type === 'text');
+                if (textContent?.text) {
+                  console.log('[Guide] Found text in conversation item:', textContent.text);
+                  this.pendingText += textContent.text;
+                  this.considerSendingChunk(false);
+                }
               }
               break;
 
@@ -442,7 +469,7 @@
               break;
 
             case 'error':
-              console.error('[Guide] Error:', event.error);
+              console.error('[Guide] ❌ Error:', event.error);
               break;
           }
         });
@@ -466,12 +493,13 @@
         if (!text) return;
 
         const chunk = {
+          lang: this.targetLanguage,  // CRITICAL: tell backend which language this is
           text: text,
           ts: Date.now(),
           seq: ++this.sequenceNumber
         };
 
-        console.log(`[Guide] Sending chunk #${chunk.seq}:`, text.substring(0, 50) + '...');
+        console.log(`[Guide] Sending chunk #${chunk.seq} (lang: ${chunk.lang}):`, text.substring(0, 50) + '...');
 
         try {
           const response = await fetch('/ingest', {

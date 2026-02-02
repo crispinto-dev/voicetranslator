@@ -388,15 +388,15 @@
 
       es.onerror = (e) => {
         console.error('[Visitor] SSE error:', e);
-        setStatus('inactive', '🔴 Riconnessione...');
+        setStatus('inactive', '🔴 Connessione persa');
 
-        // Auto-reconnect after 3 seconds
-        setTimeout(() => {
-          if (es && es.readyState === EventSource.CLOSED) {
-            console.log('[Visitor] Attempting reconnection...');
-            connectSSE(lang);
-          }
-        }, 3000);
+        // EventSource has built-in reconnection, don't manually reconnect
+        // Only reconnect if the connection is definitively closed
+        if (es.readyState === EventSource.CLOSED) {
+          console.log('[Visitor] Connection closed permanently');
+        } else {
+          console.log('[Visitor] EventSource will auto-reconnect...');
+        }
       };
     }
 

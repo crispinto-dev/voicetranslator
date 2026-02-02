@@ -139,7 +139,7 @@ You are a professional real-time translator for personal conversations and inter
         },
         session: {
           type: 'realtime',
-          model: 'gpt-4o-realtime-preview',
+          model: 'gpt-4o-realtime-preview-2024-12-17',  // Match client session model
           instructions: instructions
           // Note: turn_detection must be disabled via session.update after connection
         }
@@ -253,30 +253,40 @@ app.get("/sse", (req, res) => {
 
 // Ingest: riceve chunk dalla guida
 app.post("/ingest", (req, res) => {
-  const { text, ts, seq } = req.body || {};
+  const { text, ts, seq, lang } = req.body || {};
 
   if (!text) {
     return res.status(400).json({ ok: false, error: 'Missing text' });
   }
 
-  console.log(`[Ingest] Received chunk (seq: ${seq}): "${text.substring(0, 50)}..."`);
+  console.log(`[Ingest] Received chunk (seq: ${seq}, lang: ${lang}): "${text.substring(0, 50)}..."`);
 
-  if (currentClient) {
+  // Check if receiver is connected AND language matches
+  const receiverOk = currentClient && (!lang || currentClient.lang === lang.toLowerCase());
+
+  if (receiverOk) {
     try {
       sseSend(currentClient.res, {
         id: ++globalEventId,
         event: "chunk",
         data: { text, ts: ts ?? Date.now(), seq }
       });
-      console.log(`[Ingest] Sent to receiver`);
+      console.log(`[Ingest] Sent to receiver (lang match: ${currentClient.lang})`);
     } catch (e) {
       console.error('[Ingest] Error sending to receiver:', e);
     }
+  } else if (currentClient) {
+    console.log(`[Ingest] Receiver connected but language mismatch (guide: ${lang}, receiver: ${currentClient.lang})`);
   } else {
     console.log(`[Ingest] No receiver connected, dropping chunk`);
   }
 
-  res.json({ ok: true, hasReceiver: currentClient !== null });
+  res.json({
+    ok: true,
+    hasReceiver: currentClient !== null,
+    receiverLang: currentClient?.lang ?? null,
+    accepted: receiverOk
+  });
 });
 
 server.listen(PORT, () => {
