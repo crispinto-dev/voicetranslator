@@ -532,6 +532,24 @@
             case 'error':
               console.error('[Guide] ❌ Error:', event.error);
               break;
+
+            // Input transcription completed - trigger translation response
+            case 'conversation.item.input_audio_transcription.completed':
+              console.log('[Guide] 📝 Input transcription completed:', event.transcript);
+              this.updateStatus('active', '🔄 Traduzione...');
+
+              // Trigger translation response when input transcription is done
+              if (!this.isCreatingResponse && this.session?.transport?.send) {
+                this.isCreatingResponse = true;
+                this.session.transport.send({
+                  type: 'response.create',
+                  response: {
+                    modalities: ['text']
+                  }
+                });
+                console.log('[Guide] Translation response requested after input transcription');
+              }
+              break;
           }
         });
       }
