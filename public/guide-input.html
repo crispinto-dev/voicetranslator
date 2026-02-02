@@ -331,14 +331,13 @@
           await this.session.connect({ apiKey: token });
           console.log('[Guide] Connected to OpenAI Realtime API');
 
-          // CRITICAL: Enable output audio transcription and text modality via session.update
+          // Configure session for TEXT ONLY output (no audio needed on guide side)
           setTimeout(() => {
             if (this.session?.transport?.send) {
               const updatePayload = {
                 type: 'session.update',
                 session: {
-                  modalities: ['audio', 'text'],  // Request BOTH audio and text output
-                  output_audio_transcription: { model: 'whisper-1' }
+                  modalities: ['text']  // TEXT ONLY - no TTS needed on guide side
                 }
               };
               console.log('[Guide] Sending session.update:', JSON.stringify(updatePayload));
@@ -346,13 +345,7 @@
             }
           }, 200);
 
-          // Mute all audio elements (no local playback)
-          setTimeout(() => {
-            document.querySelectorAll('audio').forEach(audio => {
-              audio.volume = 0;
-              audio.muted = true;
-            });
-          }, 500);
+          // No audio elements needed - text only mode
 
           this.updateStatus('active', '✅ Attivo - Parla nel microfono');
           this.setupForm.classList.add('hidden');
@@ -411,28 +404,17 @@
               console.log('[Guide] Speech stopped, triggering response');
               this.updateStatus('active', '🔄 Traduzione...');
 
-              // Trigger manual response - try multiple methods
+              // Trigger manual response - TEXT ONLY (no TTS on guide side)
               setTimeout(() => {
-                // Method 1: Direct transport send
                 if (this.session?.transport?.send) {
                   const payload = {
                     type: 'response.create',
                     response: {
-                      modalities: ['audio', 'text']
+                      modalities: ['text']  // TEXT ONLY - faster, no audio generation
                     }
                   };
                   console.log('[Guide] Sending response.create via transport:', JSON.stringify(payload));
                   this.session.transport.send(payload);
-                }
-                // Method 2: Try session method if available
-                if (this.session?.sendMessage) {
-                  console.log('[Guide] Trying session.sendMessage');
-                  this.session.sendMessage({ type: 'response.create' });
-                }
-                // Method 3: Try createResponse if available
-                if (this.session?.createResponse) {
-                  console.log('[Guide] Trying session.createResponse');
-                  this.session.createResponse();
                 }
               }, 100);
               break;
