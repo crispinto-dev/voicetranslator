@@ -259,6 +259,7 @@
         this.sequenceNumber = 0;
         this.pendingText = '';
         this.lastSendTime = 0;
+        this.isCreatingResponse = false;  // Lock to prevent duplicate responses
 
         this.initializeUI();
       }
@@ -307,10 +308,9 @@
             instructions: instructions
           });
 
-          // Create session with auto response on VAD and output transcription
+          // Create session with MANUAL response only (no auto-response = no unwanted audio)
           const sessionConfig = {
             model: 'gpt-4o-realtime-preview-2024-12-17',
-            // Use audio modality with transcription
             inputAudioTranscription: { model: 'whisper-1' },
             config: {
               turnDetection: {
@@ -318,8 +318,8 @@
                 threshold: 0.5,
                 prefixPaddingMs: 300,
                 silenceDurationMs: 700,
-                createResponse: true,       // Auto-create response on speech end
-                interruptResponse: false    // No interruption
+                createResponse: false,      // CRITICAL: no auto-response (would include audio)
+                interruptResponse: false
               }
             }
           };
@@ -331,19 +331,14 @@
           await this.session.connect({ apiKey: token });
           console.log('[Guide] Connected to OpenAI Realtime API');
 
-          // Configure session for TEXT ONLY output (no audio needed on guide side)
-          setTimeout(() => {
-            if (this.session?.transport?.send) {
-              const updatePayload = {
-                type: 'session.update',
-                session: {
-                  modalities: ['text']  // TEXT ONLY - no TTS needed on guide side
-                }
-              };
-              console.log('[Guide] Sending session.update:', JSON.stringify(updatePayload));
-              this.session.transport.send(updatePayload);
+          // IMMEDIATELY set TEXT ONLY modality (before any response can start)
+          this.session.transport.send({
+            type: 'session.update',
+            session: {
+              modalities: ['text']  // TEXT ONLY - no TTS on guide side
             }
-          }, 200);
+          });
+          console.log('[Guide] Session configured for text-only output');
 
           // Mute any audio elements created by SDK (it ignores modalities setting)
           this.muteAllAudio();
@@ -406,17 +401,22 @@
               console.log('[Guide] Speech stopped, triggering response');
               this.updateStatus('active', '🔄 Traduzione...');
 
-              // Trigger manual response - TEXT ONLY (no TTS on guide side)
+              // Trigger manual response - TEXT ONLY with lock to prevent duplicates
               setTimeout(() => {
+                if (this.isCreatingResponse) {
+                  console.log('[Guide] Response already in progress, skipping');
+                  return;
+                }
+                this.isCreatingResponse = true;
+
                 if (this.session?.transport?.send) {
-                  const payload = {
+                  this.session.transport.send({
                     type: 'response.create',
                     response: {
-                      modalities: ['text']  // TEXT ONLY - faster, no audio generation
+                      modalities: ['text']  // TEXT ONLY - no audio generation
                     }
-                  };
-                  console.log('[Guide] Sending response.create via transport:', JSON.stringify(payload));
-                  this.session.transport.send(payload);
+                  });
+                  console.log('[Guide] Manual text-only response requested');
                 }
               }, 100);
               break;
@@ -515,6 +515,7 @@
 
             case 'response.done':
               console.log('[Guide] Response complete, pending text:', this.pendingText);
+              this.isCreatingResponse = false;  // Release lock for next response
               // Log full response details if available
               if (event.response) {
                 console.log('[Guide] Response details:', JSON.stringify(event.response).substring(0, 500));
