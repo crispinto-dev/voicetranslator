@@ -331,14 +331,19 @@
           await this.session.connect({ apiKey: token });
           console.log('[Guide] Connected to OpenAI Realtime API');
 
-          // IMMEDIATELY set TEXT ONLY modality (before any response can start)
-          this.session.transport.send({
-            type: 'session.update',
-            session: {
-              modalities: ['text']  // TEXT ONLY - no TTS on guide side
-            }
-          });
-          console.log('[Guide] Session configured for text-only output');
+          // Set TEXT ONLY modality (small delay to ensure transport is ready)
+          await new Promise(resolve => setTimeout(resolve, 100));
+          if (this.session?.transport?.send) {
+            this.session.transport.send({
+              type: 'session.update',
+              session: {
+                modalities: ['text']  // TEXT ONLY - no TTS on guide side
+              }
+            });
+            console.log('[Guide] Session configured for text-only output');
+          } else {
+            console.warn('[Guide] Transport not available for session.update');
+          }
 
           // Mute any audio elements created by SDK (it ignores modalities setting)
           this.muteAllAudio();
