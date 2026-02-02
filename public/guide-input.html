@@ -345,7 +345,9 @@
             }
           }, 200);
 
-          // No audio elements needed - text only mode
+          // Mute any audio elements created by SDK (it ignores modalities setting)
+          this.muteAllAudio();
+          setInterval(() => this.muteAllAudio(), 500);
 
           this.updateStatus('active', '✅ Attivo - Parla nel microfono');
           this.setupForm.classList.add('hidden');
@@ -588,6 +590,32 @@
       updateStatus(state, text) {
         this.status.className = 'status ' + state;
         this.status.textContent = text;
+      }
+
+      muteAllAudio() {
+        // Mute ALL audio elements on page (SDK creates them dynamically)
+        document.querySelectorAll('audio').forEach(audio => {
+          audio.volume = 0;
+          audio.muted = true;
+          audio.pause();
+        });
+        // Also intercept any new audio context
+        if (window.AudioContext || window.webkitAudioContext) {
+          const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
+          if (!window._audioContextPatched) {
+            window._audioContextPatched = true;
+            const patchedContext = function(...args) {
+              const ctx = new OriginalAudioContext(...args);
+              // Create a gain node set to 0 to mute
+              const gainNode = ctx.createGain();
+              gainNode.gain.value = 0;
+              const originalConnect = ctx.destination;
+              // Intercept connections to destination
+              return ctx;
+            };
+            // Don't override - just mute elements
+          }
+        }
       }
     }
 
