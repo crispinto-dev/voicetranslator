@@ -331,16 +331,17 @@
           await this.session.connect({ apiKey: token });
           console.log('[Guide] Connected to OpenAI Realtime API');
 
-          // Set TEXT ONLY modality (small delay to ensure transport is ready)
+          // Set TEXT ONLY modality + output transcription fallback
           await new Promise(resolve => setTimeout(resolve, 100));
           if (this.session?.transport?.send) {
             this.session.transport.send({
               type: 'session.update',
               session: {
-                modalities: ['text']  // TEXT ONLY - no TTS on guide side
+                modalities: ['text'],  // Request text output
+                output_audio_transcription: { model: 'whisper-1' }  // Fallback: if audio comes out, transcribe it
               }
             });
-            console.log('[Guide] Session configured for text-only output');
+            console.log('[Guide] Session configured for text-only with audio transcription fallback');
           } else {
             console.warn('[Guide] Transport not available for session.update');
           }
@@ -403,27 +404,9 @@
               break;
 
             case 'input_audio_buffer.speech_stopped':
-              console.log('[Guide] Speech stopped, triggering response');
-              this.updateStatus('active', '🔄 Traduzione...');
-
-              // Trigger manual response - TEXT ONLY with lock to prevent duplicates
-              setTimeout(() => {
-                if (this.isCreatingResponse) {
-                  console.log('[Guide] Response already in progress, skipping');
-                  return;
-                }
-                this.isCreatingResponse = true;
-
-                if (this.session?.transport?.send) {
-                  this.session.transport.send({
-                    type: 'response.create',
-                    response: {
-                      modalities: ['text']  // TEXT ONLY - no audio generation
-                    }
-                  });
-                  console.log('[Guide] Manual text-only response requested');
-                }
-              }, 100);
+              // Don't trigger response here - wait for input_audio_transcription.completed
+              console.log('[Guide] Speech stopped, waiting for transcription...');
+              this.updateStatus('active', '🔄 Trascrizione...');
               break;
 
             // Primary text events (ideal case)
@@ -531,6 +514,7 @@
 
             case 'error':
               console.error('[Guide] ❌ Error:', event.error);
+              this.isCreatingResponse = false;  // Release lock on error
               break;
 
             // Input transcription completed - trigger translation response
@@ -548,6 +532,14 @@
                   }
                 });
                 console.log('[Guide] Translation response requested after input transcription');
+
+                // Watchdog: release lock after 4s if response.done never arrives
+                setTimeout(() => {
+                  if (this.isCreatingResponse) {
+                    console.warn('[Guide] Watchdog: releasing lock after timeout');
+                    this.isCreatingResponse = false;
+                  }
+                }, 4000);
               }
               break;
           }
@@ -592,8 +584,16 @@
           if (result.ok) {
             this.chunksSent++;
             this.chunksSentEl.textContent = this.chunksSent;
-            this.receiverStatusEl.textContent = result.hasReceiver ? '🟢' : '🔴';
+            // Show receiver status: green=connected+accepted, orange=connected but lang mismatch, red=no receiver
+            if (result.hasReceiver) {
+              this.receiverStatusEl.textContent = result.accepted ? '🟢' : '🟠';
+            } else {
+              this.receiverStatusEl.textContent = '🔴';
+            }
             this.addToTranscript(text);
+            console.log(`[Guide] Chunk sent: hasReceiver=${result.hasReceiver}, accepted=${result.accepted}`);
+          } else {
+            console.warn('[Guide] Chunk not sent:', result);
           }
         } catch (error) {
           console.error('[Guide] Error sending chunk:', error);
