@@ -258,6 +258,13 @@
         this.chunksSent = 0;
         this.sequenceNumber = 0;
 
+        // Micro-chunking state
+        this.microBuffer = '';
+        this.microTimer = null;
+        this.MICRO_MAX_CHARS = 140;    // Max chars before forced flush
+        this.MICRO_MIN_CHARS = 35;     // Min chars (avoid tiny chunks)
+        this.MICRO_FLUSH_MS = 1100;    // Flush after silence
+
         this.initializeUI();
       }
 
@@ -352,6 +359,11 @@
           this.agent = null;
         }
 
+        // Clean up micro-chunking
+        if (this.microTimer) clearTimeout(this.microTimer);
+        this.microTimer = null;
+        this.microBuffer = '';
+
         this.setupForm.classList.remove('hidden');
         this.activeSession.classList.add('hidden');
         this.startBtn.disabled = false;
@@ -380,16 +392,27 @@
             case 'input_audio_buffer.speech_stopped':
               console.log('[Guide] Speech stopped, waiting for transcription...');
               this.updateStatus('active', '🔄 Trascrizione...');
+              // Flush any remaining text in buffer when speech stops
+              this.flushMicroBuffer('speech_stopped');
               break;
 
-            // THE KEY EVENT: when input transcription is complete, send to server
+            // THE KEY EVENT: when input transcription is complete, buffer for micro-chunking
             case 'conversation.item.input_audio_transcription.completed': {
               const itText = (event.transcript || '').trim();
               console.log('[Guide] 📝 STT completed:', itText);
 
               if (itText) {
-                // Send Italian text to server for translation
-                this.sendSourceText(itText);
+                // Add to micro-chunk buffer
+                this.microBuffer = (this.microBuffer ? (this.microBuffer + ' ') : '') + itText;
+
+                // Flush if: strong punctuation OR buffer too long
+                const endsStrong = /[\.\!\?\:\;]$/.test(itText);
+                if (endsStrong || this.microBuffer.length >= this.MICRO_MAX_CHARS) {
+                  this.flushMicroBuffer(endsStrong ? 'punct' : 'max_chars');
+                } else {
+                  // Otherwise schedule timed flush
+                  this.scheduleMicroFlush();
+                }
               }
 
               this.updateStatus('active', '✅ Pronto');
@@ -401,6 +424,58 @@
               break;
           }
         });
+      }
+
+      // ==========================================
+      // MICRO-CHUNKING FUNCTIONS
+      // ==========================================
+
+      scheduleMicroFlush() {
+        if (this.microTimer) clearTimeout(this.microTimer);
+        this.microTimer = setTimeout(() => {
+          this.flushMicroBuffer('timer');
+        }, this.MICRO_FLUSH_MS);
+      }
+
+      splitIntoMicroChunks(text) {
+        // Split on strong punctuation, keeping the punctuation with the sentence
+        const parts = text
+          .replace(/\s+/g, ' ')
+          .split(/(?<=[\.\!\?\:\;])\s+/)
+          .map(s => s.trim())
+          .filter(Boolean);
+        return parts;
+      }
+
+      flushMicroBuffer(reason = 'manual') {
+        const buf = (this.microBuffer || '').trim();
+        if (!buf) return;
+
+        // If too short and doesn't end with punctuation, wait more
+        const endsStrong = /[\.\!\?\:\;]$/.test(buf);
+        if (!endsStrong && buf.length < this.MICRO_MIN_CHARS) {
+          this.scheduleMicroFlush();
+          return;
+        }
+
+        // Split into micro-chunks
+        const chunks = this.splitIntoMicroChunks(buf);
+
+        if (chunks.length === 0) {
+          this.sendSourceText(buf);
+        } else {
+          for (const c of chunks) {
+            if (c.length >= 1) this.sendSourceText(c);
+          }
+        }
+
+        this.microBuffer = '';
+        if (this.microTimer) {
+          clearTimeout(this.microTimer);
+          this.microTimer = null;
+        }
+
+        console.log(`[Guide] Micro flush (${reason}): ${chunks.length} chunk(s)`);
       }
 
       async sendSourceText(sourceText) {
