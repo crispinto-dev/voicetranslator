@@ -258,19 +258,19 @@
         this.chunksSent = 0;
         this.sequenceNumber = 0;
 
-        // Micro-chunking state - "Natural" preset for museum tours
+        // Micro-chunking state - "Aggressive" preset for fast simultaneous feel
         this.microBuffer = '';
         this.microTimer = null;
-        this.MICRO_MAX_CHARS = 200;    // Max chars before forced flush (was 140)
-        this.MICRO_MIN_CHARS = 55;     // Min chars (avoid tiny chunks) (was 35)
-        this.MICRO_FLUSH_MS = 1500;    // Flush after silence (was 1100)
+        this.MICRO_MAX_CHARS = 120;    // Flush sooner for lower latency
+        this.MICRO_MIN_CHARS = 25;     // Allow shorter chunks
+        this.MICRO_FLUSH_MS = 850;     // Faster timed flush
 
         // Dedup state (avoid STT repeating same phrase)
         this.lastSentText = '';
         this.lastSentAt = 0;
 
         // Anti-burst: minimum gap between sends
-        this.MIN_SEND_GAP_MS = 450;
+        this.MIN_SEND_GAP_MS = 250;    // Faster send rate
         this.lastSendAt = 0;
 
         this.initializeUI();
@@ -466,6 +466,14 @@
         // If too short and doesn't end with strong punctuation, wait more
         const endsStrong = /[.!?]$/.test(buf);
         if (!endsStrong && buf.length < this.MICRO_MIN_CHARS) {
+          this.scheduleMicroFlush();
+          return;
+        }
+
+        // Avoid flushing on Italian connectives (sounds unnatural in TTS)
+        const badEnding = /\b(e|ma|perché|quindi|che|di|a|da|in|con|su|per|un|una|il|lo|la|i|gli|le|al|del|nel)\s*$/i;
+        if (!endsStrong && badEnding.test(buf) && buf.length < this.MICRO_MAX_CHARS) {
+          console.log('[Guide] Bad ending, waiting for more text');
           this.scheduleMicroFlush();
           return;
         }
