@@ -133,6 +133,61 @@
 
     .hidden { display: none; }
 
+    .preset-selector {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .preset-option {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 8px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: white;
+    }
+
+    .preset-option:hover {
+      border-color: #f59e0b;
+    }
+
+    .preset-option input {
+      display: none;
+    }
+
+    .preset-option input:checked + .preset-label {
+      font-weight: 700;
+    }
+
+    .preset-option:has(input:checked) {
+      border-color: #f59e0b;
+      background: #fef3c7;
+    }
+
+    .preset-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+    }
+
+    .preset-desc {
+      font-size: 10px;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    .preset-hint {
+      font-size: 11px;
+      color: #888;
+      text-align: center;
+      margin-top: 8px;
+    }
+
     .stats {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -216,6 +271,28 @@
         </select>
       </div>
 
+      <div class="form-group">
+        <label>⚡ Stile traduzione:</label>
+        <div class="preset-selector">
+          <label class="preset-option">
+            <input type="radio" name="preset" value="simultaneous" checked>
+            <span class="preset-label">🟢 Simultaneo</span>
+            <span class="preset-desc">Molto rapido</span>
+          </label>
+          <label class="preset-option">
+            <input type="radio" name="preset" value="balanced">
+            <span class="preset-label">⚪ Equilibrato</span>
+            <span class="preset-desc">Compromesso</span>
+          </label>
+          <label class="preset-option">
+            <input type="radio" name="preset" value="natural">
+            <span class="preset-label">🔵 Naturale</span>
+            <span class="preset-desc">Frasi complete</span>
+          </label>
+        </div>
+        <p class="preset-hint">Più veloce → meno ritardo | Più naturale → frasi più complete</p>
+      </div>
+
       <button class="btn btn-primary" id="startBtn">
         Avvia Modalità Guida
       </button>
@@ -249,6 +326,31 @@
   <script type="module">
     import { RealtimeAgent, RealtimeSession } from '@openai/agents-realtime';
 
+    // Translation style presets
+    const PRESETS = {
+      simultaneous: {
+        name: 'Simultaneo',
+        MICRO_MAX_CHARS: 100,
+        MICRO_MIN_CHARS: 22,
+        MICRO_FLUSH_MS: 750,
+        MIN_SEND_GAP_MS: 200
+      },
+      balanced: {
+        name: 'Equilibrato',
+        MICRO_MAX_CHARS: 150,
+        MICRO_MIN_CHARS: 40,
+        MICRO_FLUSH_MS: 1100,
+        MIN_SEND_GAP_MS: 320
+      },
+      natural: {
+        name: 'Naturale',
+        MICRO_MAX_CHARS: 210,
+        MICRO_MIN_CHARS: 58,
+        MICRO_FLUSH_MS: 1600,
+        MIN_SEND_GAP_MS: 480
+      }
+    };
+
     class GuideInput {
       constructor() {
         this.session = null;
@@ -258,22 +360,30 @@
         this.chunksSent = 0;
         this.sequenceNumber = 0;
 
-        // Micro-chunking state - "Aggressive" preset for fast simultaneous feel
+        // Micro-chunking state - initialized from preset
         this.microBuffer = '';
         this.microTimer = null;
-        this.MICRO_MAX_CHARS = 120;    // Flush sooner for lower latency
-        this.MICRO_MIN_CHARS = 25;     // Allow shorter chunks
-        this.MICRO_FLUSH_MS = 850;     // Faster timed flush
+        this.currentPreset = 'simultaneous';
+        this.applyPreset(this.currentPreset);
 
         // Dedup state (avoid STT repeating same phrase)
         this.lastSentText = '';
         this.lastSentAt = 0;
 
         // Anti-burst: minimum gap between sends
-        this.MIN_SEND_GAP_MS = 250;    // Faster send rate
         this.lastSendAt = 0;
 
         this.initializeUI();
+      }
+
+      applyPreset(presetName) {
+        const preset = PRESETS[presetName] || PRESETS.simultaneous;
+        this.currentPreset = presetName;
+        this.MICRO_MAX_CHARS = preset.MICRO_MAX_CHARS;
+        this.MICRO_MIN_CHARS = preset.MICRO_MIN_CHARS;
+        this.MICRO_FLUSH_MS = preset.MICRO_FLUSH_MS;
+        this.MIN_SEND_GAP_MS = preset.MIN_SEND_GAP_MS;
+        console.log(`[Guide] Applied preset: ${preset.name}`, preset);
       }
 
       initializeUI() {
@@ -294,6 +404,11 @@
       async start() {
         try {
           this.targetLanguage = this.targetLanguageSelect.value;
+
+          // Apply selected preset
+          const selectedPreset = document.querySelector('input[name="preset"]:checked')?.value || 'simultaneous';
+          this.applyPreset(selectedPreset);
+
           this.startBtn.disabled = true;
           this.updateStatus('connecting', '⏳ Connessione...');
 
