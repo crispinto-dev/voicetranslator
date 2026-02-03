@@ -58,7 +58,10 @@ app.post('/api/realtime/token', async (req, res) => {
     // Different instructions based on mode
     let instructions;
 
-    if (mode === 'museum') {
+    if (mode === 'stt-only') {
+      // STT-only mode: just transcribe, no translation (translation happens server-side)
+      instructions = `You are a speech-to-text transcriber. Just listen and transcribe.`;
+    } else if (mode === 'museum') {
       // Museum Guide Mode: TEXT-ONLY output for dual device streaming
       instructions = `You are a professional simultaneous interpreter for museum/tour guides, translating into ${targetLanguageName}.
 
@@ -206,6 +209,60 @@ You are a transparent translation layer - the user should feel like they're hear
 });
 
 // ==========================================
+// TRANSLATION FUNCTION (server-side)
+// ==========================================
+
+const languageNames = {
+  'en': 'English',
+  'es': 'Spanish',
+  'fr': 'French',
+  'de': 'German',
+  'it': 'Italian',
+  'pt': 'Portuguese',
+  'zh': 'Chinese',
+  'ja': 'Japanese',
+  'ko': 'Korean',
+  'ar': 'Arabic',
+  'ru': 'Russian'
+};
+
+async function translateText({ sourceText, targetLang }) {
+  const targetLanguageName = languageNames[targetLang] || 'English';
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',  // Fast and cheap for translation
+      messages: [
+        {
+          role: 'system',
+          content: `You are a professional simultaneous interpreter for museum tours.
+Translate the following Italian text into ${targetLanguageName}.
+Output ONLY the translation, nothing else. No quotes, no explanations.
+Keep it natural and suitable for text-to-speech.`
+        },
+        { role: 'user', content: sourceText }
+      ],
+      max_tokens: 500,
+      temperature: 0.3
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Translation API error: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  const translated = data.choices?.[0]?.message?.content?.trim() || '';
+  return translated;
+}
+
+// ==========================================
 // SSE ENDPOINTS FOR DUAL DEVICE MODE
 // ==========================================
 
@@ -249,42 +306,59 @@ app.get("/sse", (req, res) => {
   });
 });
 
-// Ingest: riceve chunk dalla guida
-app.post("/ingest", (req, res) => {
-  const { text, ts, seq, lang } = req.body || {};
+// Ingest: riceve chunk dalla guida (sourceText in italiano) e traduce
+app.post("/ingest", async (req, res) => {
+  const { sourceText, ts, seq, lang } = req.body || {};
 
-  if (!text) {
-    return res.status(400).json({ ok: false, error: 'Missing text' });
+  if (!sourceText || !lang) {
+    return res.status(400).json({ ok: false, error: 'Missing sourceText or lang' });
   }
 
-  console.log(`[Ingest] Received chunk (seq: ${seq}, lang: ${lang}): "${text.substring(0, 50)}..."`);
+  console.log(`[Ingest] Received source (IT) seq:${seq} -> ${lang}: "${sourceText.substring(0, 60)}..."`);
 
   // Check if receiver is connected AND language matches
-  const receiverOk = currentClient && (!lang || currentClient.lang === lang.toLowerCase());
+  const receiverOk = currentClient && currentClient.lang === lang.toLowerCase();
 
   if (receiverOk) {
     try {
+      // Translate server-side
+      console.log(`[Ingest] Translating to ${lang}...`);
+      const translated = await translateText({ sourceText, targetLang: lang });
+      console.log(`[Ingest] Translation: "${translated.substring(0, 60)}..."`);
+
+      // Send translated text to receiver
       sseSend(currentClient.res, {
         id: ++globalEventId,
         event: "chunk",
-        data: { text, ts: ts ?? Date.now(), seq }
+        data: { text: translated, ts: ts ?? Date.now(), seq }
       });
-      console.log(`[Ingest] Sent to receiver (lang match: ${currentClient.lang})`);
-    } catch (e) {
-      console.error('[Ingest] Error sending to receiver:', e);
-    }
-  } else if (currentClient) {
-    console.log(`[Ingest] Receiver connected but language mismatch (guide: ${lang}, receiver: ${currentClient.lang})`);
-  } else {
-    console.log(`[Ingest] No receiver connected, dropping chunk`);
-  }
+      console.log(`[Ingest] Sent translation to receiver (${lang})`);
 
-  res.json({
-    ok: true,
-    hasReceiver: currentClient !== null,
-    receiverLang: currentClient?.lang ?? null,
-    accepted: receiverOk
-  });
+      res.json({
+        ok: true,
+        hasReceiver: true,
+        receiverLang: currentClient.lang,
+        accepted: true
+      });
+    } catch (e) {
+      console.error('[Ingest] Translation error:', e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  } else {
+    // No receiver or language mismatch - don't waste API tokens
+    if (currentClient) {
+      console.log(`[Ingest] Receiver connected but language mismatch (guide: ${lang}, receiver: ${currentClient.lang})`);
+    } else {
+      console.log(`[Ingest] No receiver connected, skipping translation`);
+    }
+
+    res.json({
+      ok: true,
+      hasReceiver: currentClient !== null,
+      receiverLang: currentClient?.lang ?? null,
+      accepted: false
+    });
+  }
 });
 
 server.listen(PORT, () => {

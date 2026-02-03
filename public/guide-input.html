@@ -236,7 +236,7 @@
       </div>
 
       <div class="transcript">
-        <h3>Traduzione Inviata</h3>
+        <h3>Testo Rilevato (IT)</h3>
         <div id="transcriptLog"></div>
       </div>
 
@@ -257,9 +257,6 @@
         this.targetLanguage = 'en';
         this.chunksSent = 0;
         this.sequenceNumber = 0;
-        this.pendingText = '';
-        this.lastSendTime = 0;
-        this.isCreatingResponse = false;  // Lock to prevent duplicate responses
 
         this.initializeUI();
       }
@@ -285,13 +282,13 @@
           this.startBtn.disabled = true;
           this.updateStatus('connecting', '⏳ Connessione...');
 
-          // Get token
+          // Get token for STT only
           const tokenResponse = await fetch('/api/realtime/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               language: this.targetLanguage,
-              mode: 'museum'
+              mode: 'stt-only'  // New mode: STT only, no translation
             })
           });
 
@@ -299,16 +296,16 @@
             throw new Error('Failed to get token');
           }
 
-          const { token, instructions } = await tokenResponse.json();
+          const { token } = await tokenResponse.json();
           console.log('[Guide] Token received');
 
-          // Create agent
+          // Create agent with minimal instructions (STT only)
           this.agent = new RealtimeAgent({
-            name: 'GuideTranslator',
-            instructions: instructions
+            name: 'GuideSTT',
+            instructions: 'You are a speech-to-text transcriber. Just listen.'
           });
 
-          // Create session with MANUAL response only (no auto-response = no unwanted audio)
+          // Create session for STT only - NO response generation
           const sessionConfig = {
             model: 'gpt-4o-realtime-preview-2024-12-17',
             inputAudioTranscription: { model: 'whisper-1' },
@@ -318,7 +315,7 @@
                 threshold: 0.5,
                 prefixPaddingMs: 300,
                 silenceDurationMs: 700,
-                createResponse: false,      // CRITICAL: no auto-response (would include audio)
+                createResponse: false,  // NO response - STT only
                 interruptResponse: false
               }
             }
@@ -329,24 +326,9 @@
 
           // Connect
           await this.session.connect({ apiKey: token });
-          console.log('[Guide] Connected to OpenAI Realtime API');
+          console.log('[Guide] Connected to OpenAI Realtime API (STT mode)');
 
-          // Set TEXT ONLY modality + output transcription fallback
-          await new Promise(resolve => setTimeout(resolve, 100));
-          if (this.session?.transport?.send) {
-            this.session.transport.send({
-              type: 'session.update',
-              session: {
-                modalities: ['text'],  // Request text output
-                output_audio_transcription: { model: 'whisper-1' }  // Fallback: if audio comes out, transcribe it
-              }
-            });
-            console.log('[Guide] Session configured for text-only with audio transcription fallback');
-          } else {
-            console.warn('[Guide] Transport not available for session.update');
-          }
-
-          // Mute any audio elements created by SDK (it ignores modalities setting)
+          // Mute any audio elements (shouldn't be any, but just in case)
           this.muteAllAudio();
           setInterval(() => this.muteAllAudio(), 500);
 
@@ -383,194 +365,56 @@
       setupEventHandlers() {
         if (!this.session) return;
 
-        // Log ALL events from any source
-        const logEvent = (source, event) => {
-          const eventStr = JSON.stringify(event).substring(0, 300);
-          console.log(`[${source}]`, event.type || event, eventStr);
-        };
-
-        // Try multiple event listeners to catch all events
-        this.session.on('*', (event) => logEvent('Session *', event));
-        this.session.on('message', (event) => logEvent('Session message', event));
-        this.session.on('response', (event) => logEvent('Session response', event));
-
         this.session.on('transport_event', (event) => {
-          logEvent('transport_event', event);
+          // Log for debugging
+          if (event.type?.includes('transcription') || event.type?.includes('speech')) {
+            console.log('[Guide Event]', event.type, JSON.stringify(event).substring(0, 200));
+          }
 
           switch (event.type) {
             case 'input_audio_buffer.speech_started':
-              console.log('[Guide] Speech detected');
-              this.updateStatus('listening', '🎤 Rilevata voce');
+              console.log('[Guide] 🎤 Speech detected');
+              this.updateStatus('listening', '🎤 Rilevata voce...');
               break;
 
             case 'input_audio_buffer.speech_stopped':
-              // Don't trigger response here - wait for input_audio_transcription.completed
               console.log('[Guide] Speech stopped, waiting for transcription...');
               this.updateStatus('active', '🔄 Trascrizione...');
               break;
 
-            // Primary text events (ideal case)
-            case 'response.text.delta':
-              console.log('[Guide] ✅ Text delta:', event.delta);
-              if (event.delta) {
-                this.pendingText += event.delta;
-                this.considerSendingChunk(false);
-              }
-              break;
+            // THE KEY EVENT: when input transcription is complete, send to server
+            case 'conversation.item.input_audio_transcription.completed': {
+              const itText = (event.transcript || '').trim();
+              console.log('[Guide] 📝 STT completed:', itText);
 
-            case 'response.text.done':
-              console.log('[Guide] ✅ Text done:', event.text);
-              if (event.text) {
-                this.pendingText = event.text;
-                this.considerSendingChunk(true);
+              if (itText) {
+                // Send Italian text to server for translation
+                this.sendSourceText(itText);
               }
-              break;
 
-            // Fallback: audio_transcript events (SDK might use these instead)
-            case 'response.audio_transcript.delta':
-              console.log('[Guide] 🔄 Fallback audio_transcript.delta:', event.delta);
-              if (event.delta) {
-                this.pendingText += event.delta;
-                this.considerSendingChunk(false);
-              }
-              break;
-
-            case 'response.audio_transcript.done':
-              console.log('[Guide] 🔄 Fallback audio_transcript.done:', event.transcript);
-              if (event.transcript) {
-                this.pendingText = event.transcript;
-                this.considerSendingChunk(true);
-              }
-              break;
-
-            // Alternative: conversation.item with text content
-            case 'conversation.item.created':
-              if (event.item?.role === 'assistant') {
-                console.log('[Guide] 🔄 Fallback conversation.item.created');
-                const textContent = event.item.content?.find(c => c.type === 'text');
-                if (textContent?.text) {
-                  console.log('[Guide] Found text in conversation item:', textContent.text);
-                  this.pendingText += textContent.text;
-                  this.considerSendingChunk(false);
-                }
-                // Also check for transcript in audio content
-                const audioContent = event.item.content?.find(c => c.type === 'audio');
-                if (audioContent?.transcript) {
-                  console.log('[Guide] Found transcript in audio content:', audioContent.transcript);
-                  this.pendingText += audioContent.transcript;
-                  this.considerSendingChunk(false);
-                }
-              }
-              break;
-
-            // Response output item events
-            case 'response.output_item.added':
-            case 'response.output_item.done':
-              console.log('[Guide] 🔄 Output item event:', event.type);
-              if (event.item) {
-                const textContent = event.item.content?.find(c => c.type === 'text');
-                if (textContent?.text) {
-                  console.log('[Guide] Found text in output item:', textContent.text);
-                  this.pendingText += textContent.text;
-                  this.considerSendingChunk(event.type.includes('done'));
-                }
-                const audioContent = event.item.content?.find(c => c.type === 'audio');
-                if (audioContent?.transcript) {
-                  console.log('[Guide] Found transcript in output audio:', audioContent.transcript);
-                  this.pendingText += audioContent.transcript;
-                  this.considerSendingChunk(event.type.includes('done'));
-                }
-              }
-              break;
-
-            // Response content part events
-            case 'response.content_part.added':
-            case 'response.content_part.done':
-              console.log('[Guide] 🔄 Content part event:', event.type, event.part);
-              if (event.part?.text) {
-                this.pendingText += event.part.text;
-                this.considerSendingChunk(event.type.includes('done'));
-              }
-              if (event.part?.transcript) {
-                this.pendingText += event.part.transcript;
-                this.considerSendingChunk(event.type.includes('done'));
-              }
-              break;
-
-            case 'response.created':
-              console.log('[Guide] ✅ Response CREATED - response generation started');
-              break;
-
-            case 'response.done':
-              console.log('[Guide] Response complete, pending text:', this.pendingText);
-              this.isCreatingResponse = false;  // Release lock for next response
-              // Log full response details if available
-              if (event.response) {
-                console.log('[Guide] Response details:', JSON.stringify(event.response).substring(0, 500));
-              }
-              this.considerSendingChunk(true); // Force send any remaining
               this.updateStatus('active', '✅ Pronto');
               break;
+            }
 
             case 'error':
               console.error('[Guide] ❌ Error:', event.error);
-              this.isCreatingResponse = false;  // Release lock on error
-              break;
-
-            // Input transcription completed - trigger translation response
-            case 'conversation.item.input_audio_transcription.completed':
-              console.log('[Guide] 📝 Input transcription completed:', event.transcript);
-              this.updateStatus('active', '🔄 Traduzione...');
-
-              // Trigger translation response when input transcription is done
-              if (!this.isCreatingResponse && this.session?.transport?.send) {
-                this.isCreatingResponse = true;
-                this.session.transport.send({
-                  type: 'response.create',
-                  response: {
-                    modalities: ['text']
-                  }
-                });
-                console.log('[Guide] Translation response requested after input transcription');
-
-                // Watchdog: release lock after 4s if response.done never arrives
-                setTimeout(() => {
-                  if (this.isCreatingResponse) {
-                    console.warn('[Guide] Watchdog: releasing lock after timeout');
-                    this.isCreatingResponse = false;
-                  }
-                }, 4000);
-              }
               break;
           }
         });
       }
 
-      considerSendingChunk(force = false) {
-        const now = Date.now();
-        const timeSinceLastSend = now - this.lastSendTime;
-        const shouldSend = force ||
-                          (this.pendingText.length >= 140 && timeSinceLastSend >= 800) ||
-                          (this.pendingText.length >= 80 && timeSinceLastSend >= 1200);
-
-        if (shouldSend && this.pendingText.trim()) {
-          this.sendChunk(this.pendingText.trim());
-          this.pendingText = '';
-          this.lastSendTime = now;
-        }
-      }
-
-      async sendChunk(text) {
-        if (!text) return;
+      async sendSourceText(sourceText) {
+        if (!sourceText) return;
 
         const chunk = {
-          lang: this.targetLanguage,  // CRITICAL: tell backend which language this is
-          text: text,
+          lang: this.targetLanguage,    // Target language (e.g., 'en')
+          sourceLang: 'it',             // Source language (Italian)
+          sourceText: sourceText,       // Italian text to translate
           ts: Date.now(),
           seq: ++this.sequenceNumber
         };
 
-        console.log(`[Guide] Sending chunk #${chunk.seq} (lang: ${chunk.lang}):`, text.substring(0, 50) + '...');
+        console.log(`[Guide] Sending source chunk #${chunk.seq} -> ${chunk.lang}:`, sourceText);
 
         try {
           const response = await fetch('/ingest', {
@@ -584,16 +428,19 @@
           if (result.ok) {
             this.chunksSent++;
             this.chunksSentEl.textContent = this.chunksSent;
-            // Show receiver status: green=connected+accepted, orange=connected but lang mismatch, red=no receiver
+
+            // Show receiver status
             if (result.hasReceiver) {
               this.receiverStatusEl.textContent = result.accepted ? '🟢' : '🟠';
             } else {
               this.receiverStatusEl.textContent = '🔴';
             }
-            this.addToTranscript(text);
-            console.log(`[Guide] Chunk sent: hasReceiver=${result.hasReceiver}, accepted=${result.accepted}`);
+
+            // Show the Italian text we captured
+            this.addToTranscript(sourceText);
+            console.log(`[Guide] Sent. hasReceiver=${result.hasReceiver}, accepted=${result.accepted}`);
           } else {
-            console.warn('[Guide] Chunk not sent:', result);
+            console.warn('[Guide] Chunk not accepted:', result);
           }
         } catch (error) {
           console.error('[Guide] Error sending chunk:', error);
@@ -617,29 +464,11 @@
       }
 
       muteAllAudio() {
-        // Mute ALL audio elements on page (SDK creates them dynamically)
         document.querySelectorAll('audio').forEach(audio => {
           audio.volume = 0;
           audio.muted = true;
           audio.pause();
         });
-        // Also intercept any new audio context
-        if (window.AudioContext || window.webkitAudioContext) {
-          const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
-          if (!window._audioContextPatched) {
-            window._audioContextPatched = true;
-            const patchedContext = function(...args) {
-              const ctx = new OriginalAudioContext(...args);
-              // Create a gain node set to 0 to mute
-              const gainNode = ctx.createGain();
-              gainNode.gain.value = 0;
-              const originalConnect = ctx.destination;
-              // Intercept connections to destination
-              return ctx;
-            };
-            // Don't override - just mute elements
-          }
-        }
       }
     }
 
