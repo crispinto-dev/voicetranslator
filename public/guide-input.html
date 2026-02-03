@@ -258,16 +258,20 @@
         this.chunksSent = 0;
         this.sequenceNumber = 0;
 
-        // Micro-chunking state
+        // Micro-chunking state - "Natural" preset for museum tours
         this.microBuffer = '';
         this.microTimer = null;
-        this.MICRO_MAX_CHARS = 140;    // Max chars before forced flush
-        this.MICRO_MIN_CHARS = 35;     // Min chars (avoid tiny chunks)
-        this.MICRO_FLUSH_MS = 1100;    // Flush after silence
+        this.MICRO_MAX_CHARS = 200;    // Max chars before forced flush (was 140)
+        this.MICRO_MIN_CHARS = 55;     // Min chars (avoid tiny chunks) (was 35)
+        this.MICRO_FLUSH_MS = 1500;    // Flush after silence (was 1100)
 
         // Dedup state (avoid STT repeating same phrase)
         this.lastSentText = '';
         this.lastSentAt = 0;
+
+        // Anti-burst: minimum gap between sends
+        this.MIN_SEND_GAP_MS = 450;
+        this.lastSendAt = 0;
 
         this.initializeUI();
       }
@@ -412,8 +416,9 @@
                 // Add to micro-chunk buffer
                 this.microBuffer = (this.microBuffer ? (this.microBuffer + ' ') : '') + itText;
 
-                // Flush if: strong punctuation OR buffer too long
-                const endsStrong = /[\.\!\?\:\;]$/.test(itText);
+                // Flush if: strong punctuation (. ! ?) OR buffer too long
+                // Note: : and ; are "soft" - help split but don't trigger flush
+                const endsStrong = /[.!?]$/.test(itText);
                 if (endsStrong || this.microBuffer.length >= this.MICRO_MAX_CHARS) {
                   this.flushMicroBuffer(endsStrong ? 'punct' : 'max_chars');
                 } else {
@@ -458,8 +463,8 @@
         const buf = (this.microBuffer || '').trim();
         if (!buf) return;
 
-        // If too short and doesn't end with punctuation, wait more
-        const endsStrong = /[\.\!\?\:\;]$/.test(buf);
+        // If too short and doesn't end with strong punctuation, wait more
+        const endsStrong = /[.!?]$/.test(buf);
         if (!endsStrong && buf.length < this.MICRO_MIN_CHARS) {
           this.scheduleMicroFlush();
           return;
@@ -488,15 +493,23 @@
       async sendSourceText(sourceText) {
         if (!sourceText) return;
 
-        // Dedup: skip if same text was sent recently (STT sometimes repeats)
         const now = Date.now();
+
+        // Anti-burst: ensure minimum gap between sends
+        const gap = now - this.lastSendAt;
+        if (gap < this.MIN_SEND_GAP_MS) {
+          setTimeout(() => this.sendSourceText(sourceText), this.MIN_SEND_GAP_MS - gap);
+          return;
+        }
+
+        // Dedup: skip if same text was sent recently (STT sometimes repeats)
         const normalized = sourceText.replace(/\s+/g, ' ').trim().toLowerCase();
         if (normalized && normalized === this.lastSentText && (now - this.lastSentAt) < 2500) {
           console.log('[Guide] Dedup skip:', sourceText.substring(0, 30) + '...');
           return;
         }
         this.lastSentText = normalized;
-        this.lastSentAt = now;
+        this.lastSendAt = now;
 
         const chunk = {
           lang: this.targetLanguage,    // Target language (e.g., 'en')
