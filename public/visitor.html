@@ -289,7 +289,24 @@
 
     function pickVoice(lang) {
       const voices = window.speechSynthesis.getVoices() || [];
-      return voices.find(v => (v.lang || "").toLowerCase().startsWith(lang)) || null;
+      const matching = voices.filter(v => (v.lang || "").toLowerCase().startsWith(lang));
+
+      if (matching.length === 0) return null;
+
+      // Prefer local voices (better quality, no network dependency)
+      const localVoices = matching.filter(v => v.localService === true);
+
+      // Prefer Google/Microsoft voices (higher quality on desktop)
+      const premiumVoice = matching.find(v =>
+        /google|microsoft|apple/i.test(v.name) && v.localService
+      );
+      if (premiumVoice) return premiumVoice;
+
+      // Fallback to any local voice
+      if (localVoices.length > 0) return localVoices[0];
+
+      // Last resort: any matching voice
+      return matching[0];
     }
 
     async function warmupTTS(lang) {
@@ -348,13 +365,14 @@
       const cleaned = text.trim();
       if (!cleaned) return;
 
-      // Limit queue size to prevent overflow
-      if (queue.length > 6) {
-        console.warn('[Visitor] Queue full, dropping oldest chunk');
-        queue.shift();
+      // If queue is getting full, merge with last item instead of dropping
+      if (queue.length >= 6) {
+        console.warn('[Visitor] Queue full, merging with last chunk');
+        queue[queue.length - 1] += ' ' + cleaned;
+      } else {
+        queue.push(cleaned);
       }
 
-      queue.push(cleaned);
       addTranscript(cleaned);
       chunksReceived++;
       updateStats();

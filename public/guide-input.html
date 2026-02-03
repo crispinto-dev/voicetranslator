@@ -312,10 +312,10 @@
             config: {
               turnDetection: {
                 type: 'server_vad',
-                threshold: 0.5,
+                threshold: 0.45,          // Slightly lower to catch speech starts
                 prefixPaddingMs: 300,
-                silenceDurationMs: 700,
-                createResponse: false,  // NO response - STT only
+                silenceDurationMs: 1000,  // Longer pause = more natural segmentation
+                createResponse: false,    // NO response - STT only
                 interruptResponse: false
               }
             }
