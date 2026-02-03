@@ -260,6 +260,9 @@
     let speaking = false;
     let preferredVoice = null;
     let chunksReceived = 0;
+    let speakingStartedAt = 0;
+    let ttsWatchdog = null;
+    const TTS_WATCHDOG_MS = 8000;  // Max time for a single utterance
 
     const statusEl = document.getElementById("status");
     const transcriptLog = document.getElementById("transcriptLog");
@@ -337,11 +340,26 @@
       u.volume = 1.0;
 
       speaking = true;
+      speakingStartedAt = Date.now();
       setStatus('speaking', '🔊 Riproduzione...');
       updateStats();
 
+      // Clear any previous watchdog
+      if (ttsWatchdog) clearTimeout(ttsWatchdog);
+
+      // Watchdog: if TTS hangs, force recovery
+      ttsWatchdog = setTimeout(() => {
+        if (speaking && (Date.now() - speakingStartedAt) >= TTS_WATCHDOG_MS) {
+          console.warn('[Visitor] TTS watchdog triggered, forcing recovery');
+          window.speechSynthesis.cancel();
+          speaking = false;
+          speakNext(lang);
+        }
+      }, TTS_WATCHDOG_MS + 500);
+
       u.onend = () => {
         speaking = false;
+        if (ttsWatchdog) clearTimeout(ttsWatchdog);
         setTimeout(() => {
           if (queue.length > 0) {
             speakNext(lang);
@@ -354,6 +372,7 @@
       u.onerror = (e) => {
         console.error('[Visitor] TTS error:', e);
         speaking = false;
+        if (ttsWatchdog) clearTimeout(ttsWatchdog);
         setTimeout(() => speakNext(lang), 80);
       };
 
@@ -444,6 +463,7 @@
       queue = [];
       window.speechSynthesis.cancel();
       speaking = false;
+      if (ttsWatchdog) clearTimeout(ttsWatchdog);
       setStatus('inactive', '⏹ Stop');
       chunksReceived = 0;
       updateStats();

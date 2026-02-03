@@ -265,6 +265,10 @@
         this.MICRO_MIN_CHARS = 35;     // Min chars (avoid tiny chunks)
         this.MICRO_FLUSH_MS = 1100;    // Flush after silence
 
+        // Dedup state (avoid STT repeating same phrase)
+        this.lastSentText = '';
+        this.lastSentAt = 0;
+
         this.initializeUI();
       }
 
@@ -392,8 +396,11 @@
             case 'input_audio_buffer.speech_stopped':
               console.log('[Guide] Speech stopped, waiting for transcription...');
               this.updateStatus('active', '🔄 Trascrizione...');
-              // Flush any remaining text in buffer when speech stops
-              this.flushMicroBuffer('speech_stopped');
+              // Delayed flush: wait for transcription.completed to arrive first
+              if (this.microTimer) clearTimeout(this.microTimer);
+              this.microTimer = setTimeout(() => {
+                this.flushMicroBuffer('speech_stopped_delayed');
+              }, 300);
               break;
 
             // THE KEY EVENT: when input transcription is complete, buffer for micro-chunking
@@ -481,11 +488,21 @@
       async sendSourceText(sourceText) {
         if (!sourceText) return;
 
+        // Dedup: skip if same text was sent recently (STT sometimes repeats)
+        const now = Date.now();
+        const normalized = sourceText.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (normalized && normalized === this.lastSentText && (now - this.lastSentAt) < 2500) {
+          console.log('[Guide] Dedup skip:', sourceText.substring(0, 30) + '...');
+          return;
+        }
+        this.lastSentText = normalized;
+        this.lastSentAt = now;
+
         const chunk = {
           lang: this.targetLanguage,    // Target language (e.g., 'en')
           sourceLang: 'it',             // Source language (Italian)
           sourceText: sourceText,       // Italian text to translate
-          ts: Date.now(),
+          ts: now,
           seq: ++this.sequenceNumber
         };
 
