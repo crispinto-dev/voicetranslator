@@ -409,7 +409,9 @@
 
         // Micro-chunking state - initialized from preset
         this.microBuffer = '';
-        this.microTimer = null;
+        this.microFlushTimer = null;    // for scheduleMicroFlush
+        this.speechStoppedTimer = null; // for speech_stopped delayed flush
+        this.muteInterval = null;
         this.currentPreset = 'natural';
         this.applyPreset(this.currentPreset);
 
@@ -549,7 +551,7 @@
 
           // Mute any audio elements (shouldn't be any, but just in case)
           this.muteAllAudio();
-          setInterval(() => this.muteAllAudio(), 500);
+          this.muteInterval = setInterval(() => this.muteAllAudio(), 500);
 
           // Apply pre-acquired microphone stream to WebRTC connection (P4)
           if (micStream) {
@@ -602,12 +604,15 @@
         }
 
         // Clean up micro-chunking
-        if (this.microTimer) clearTimeout(this.microTimer);
-        this.microTimer = null;
+        if (this.microFlushTimer) clearTimeout(this.microFlushTimer);
+        this.microFlushTimer = null;
+        if (this.speechStoppedTimer) clearTimeout(this.speechStoppedTimer);
+        this.speechStoppedTimer = null;
         this.microBuffer = '';
 
-        // Clean up STT pause interval
+        // Clean up intervals
         if (this.sttPauseInterval) { clearInterval(this.sttPauseInterval); this.sttPauseInterval = null; }
+        if (this.muteInterval) { clearInterval(this.muteInterval); this.muteInterval = null; }
 
         // Release wake lock
         await this.releaseWakeLock();
@@ -642,8 +647,8 @@
               console.log('[Guide] Speech stopped, waiting for transcription...');
               this.updateStatus('active', '🔄 Trascrizione...');
               // Delayed flush: wait for transcription.completed to arrive first
-              if (this.microTimer) clearTimeout(this.microTimer);
-              this.microTimer = setTimeout(() => {
+              if (this.speechStoppedTimer) clearTimeout(this.speechStoppedTimer);
+              this.speechStoppedTimer = setTimeout(() => {
                 this.flushMicroBuffer('speech_stopped_delayed');
               }, 300);
               break;
@@ -704,8 +709,8 @@
       // ==========================================
 
       scheduleMicroFlush() {
-        if (this.microTimer) clearTimeout(this.microTimer);
-        this.microTimer = setTimeout(() => {
+        if (this.microFlushTimer) clearTimeout(this.microFlushTimer);
+        this.microFlushTimer = setTimeout(() => {
           this.flushMicroBuffer('timer');
         }, this.MICRO_FLUSH_MS);
       }
@@ -751,9 +756,13 @@
         }
 
         this.microBuffer = '';
-        if (this.microTimer) {
-          clearTimeout(this.microTimer);
-          this.microTimer = null;
+        if (this.microFlushTimer) {
+          clearTimeout(this.microFlushTimer);
+          this.microFlushTimer = null;
+        }
+        if (this.speechStoppedTimer) {
+          clearTimeout(this.speechStoppedTimer);
+          this.speechStoppedTimer = null;
         }
 
         console.log(`[Guide] Micro flush (${reason}): ${chunks.length} chunk(s)`);

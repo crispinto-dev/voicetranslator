@@ -274,7 +274,11 @@
     let speakingStartedAt = 0;
     let ttsWatchdog = null;
     let wakeLock = null;
-    const TTS_WATCHDOG_MS = 15000;  // Max time for a single utterance (generous to avoid interruption)
+    // Dynamic TTS watchdog based on text length
+    function getWatchdogTimeout(text) {
+      const estimatedDuration = (text.length / 50) * 1000; // ~50 chars/sec spoken
+      return Math.min(12000, Math.max(7000, estimatedDuration + 3000));
+    }
     let currentLang = 'en';
     let lastProcessedSeq = -1;
     let pendingChunks = new Map();
@@ -466,15 +470,16 @@
       // Clear any previous watchdog
       if (ttsWatchdog) clearTimeout(ttsWatchdog);
 
-      // Watchdog: if TTS hangs, force recovery
+      // Dynamic watchdog based on text length (7-12s)
+      const watchdogMs = getWatchdogTimeout(text);
       ttsWatchdog = setTimeout(() => {
-        if (speaking && (Date.now() - speakingStartedAt) >= TTS_WATCHDOG_MS) {
-          console.warn('[Visitor] TTS watchdog triggered, forcing recovery');
+        if (speaking) {
+          console.warn(`[Visitor] TTS watchdog triggered after ${watchdogMs}ms, forcing recovery`);
           window.speechSynthesis.cancel();
           speaking = false;
           speakNext(lang);
         }
-      }, TTS_WATCHDOG_MS + 500);
+      }, watchdogMs);
 
       u.onend = () => {
         speaking = false;
@@ -505,10 +510,12 @@
 
       queue.push(cleaned);
 
-      // If queue too long, trim oldest (never interrupt current playback)
-      while (queue.length > 10) {
-        const dropped = queue.shift();
-        console.warn('[Visitor] Queue overflow, dropped oldest:', dropped.substring(0, 30));
+      // If queue too long, merge oldest pairs (never interrupt, never lose content)
+      while (queue.length > 10 && queue.length >= 2) {
+        const first = queue.shift();
+        const second = queue.shift();
+        queue.unshift(first + ' ' + second);
+        console.log('[Visitor] Queue merged:', (first + ' ' + second).substring(0, 50));
       }
 
       addTranscript(cleaned);

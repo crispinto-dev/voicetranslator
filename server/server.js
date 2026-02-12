@@ -318,8 +318,13 @@ app.post("/preset-suggest", (req, res) => {
   res.json({ ok: true });
 });
 
-// Ingest: riceve chunk dalla guida (sourceText in italiano) e traduce
-app.post("/ingest", async (req, res) => {
+// Debounce state for translation batching (reduces API calls, improves coherence)
+let pendingTranslation = null;
+let debounceTimer = null;
+const DEBOUNCE_MS = 250;
+
+// Ingest: riceve chunk dalla guida, accumula con debounce, poi traduce
+app.post("/ingest", (req, res) => {
   const { sourceText, ts, seq, lang } = req.body || {};
 
   if (!sourceText || !lang) {
@@ -328,51 +333,55 @@ app.post("/ingest", async (req, res) => {
 
   console.log(`[Ingest] Received source (IT) seq:${seq} -> ${lang}: "${sourceText.substring(0, 60)}..."`);
 
-  // Check if receiver is connected AND language matches
   const receiverOk = currentClient && currentClient.lang === lang.toLowerCase();
 
-  if (receiverOk) {
+  // Respond immediately to guide (don't block on translation)
+  res.json({
+    ok: true,
+    hasReceiver: receiverOk,
+    receiverLang: currentClient?.lang ?? null,
+    accepted: receiverOk,
+    suggestedPreset: suggestedPresets[lang] || null
+  });
+
+  // If no receiver, don't accumulate or translate
+  if (!receiverOk) return;
+
+  // Accumulate text for debounced translation
+  if (!pendingTranslation || pendingTranslation.lang !== lang) {
+    pendingTranslation = { lang, texts: [sourceText], ts, seq };
+  } else {
+    pendingTranslation.texts.push(sourceText);
+    pendingTranslation.seq = seq;
+    pendingTranslation.ts = ts;
+  }
+
+  // Reset debounce timer
+  if (debounceTimer) clearTimeout(debounceTimer);
+
+  debounceTimer = setTimeout(async () => {
+    const batch = pendingTranslation;
+    pendingTranslation = null;
+    if (!batch) return;
+
+    const combinedText = batch.texts.join(' ');
     try {
-      // Translate server-side
-      console.log(`[Ingest] Translating to ${lang}...`);
-      const translated = await translateText({ sourceText, targetLang: lang });
+      console.log(`[Ingest] Translating batch (${batch.texts.length} chunk(s)) to ${batch.lang}...`);
+      const translated = await translateText({ sourceText: combinedText, targetLang: batch.lang });
       console.log(`[Ingest] Translation: "${translated.substring(0, 60)}..."`);
 
-      // Send translated text to receiver
-      sseSend(currentClient.res, {
-        id: ++globalEventId,
-        event: "chunk",
-        data: { text: translated, ts: ts ?? Date.now(), seq }
-      });
-      console.log(`[Ingest] Sent translation to receiver (${lang})`);
-
-      res.json({
-        ok: true,
-        hasReceiver: true,
-        receiverLang: currentClient.lang,
-        accepted: true,
-        suggestedPreset: suggestedPresets[lang] || null
-      });
+      if (currentClient && currentClient.lang === batch.lang) {
+        sseSend(currentClient.res, {
+          id: ++globalEventId,
+          event: "chunk",
+          data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq }
+        });
+        console.log(`[Ingest] Sent batched translation to receiver (${batch.lang})`);
+      }
     } catch (e) {
-      console.error('[Ingest] Translation error:', e);
-      res.status(500).json({ ok: false, error: e.message });
+      console.error('[Ingest] Batch translation error:', e);
     }
-  } else {
-    // No receiver or language mismatch - don't waste API tokens
-    if (currentClient) {
-      console.log(`[Ingest] Receiver connected but language mismatch (guide: ${lang}, receiver: ${currentClient.lang})`);
-    } else {
-      console.log(`[Ingest] No receiver connected, skipping translation`);
-    }
-
-    res.json({
-      ok: true,
-      hasReceiver: currentClient !== null,
-      receiverLang: currentClient?.lang ?? null,
-      accepted: false,
-      suggestedPreset: suggestedPresets[lang] || null
-    });
-  }
+  }, DEBOUNCE_MS);
 });
 
 server.listen(PORT, () => {
