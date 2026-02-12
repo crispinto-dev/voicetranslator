@@ -309,7 +309,7 @@
         <label>⚡ Stile traduzione:</label>
         <div class="preset-selector">
           <label class="preset-option">
-            <input type="radio" name="preset" value="simultaneous" checked>
+            <input type="radio" name="preset" value="simultaneous">
             <span class="preset-label">🟢 Simultaneo</span>
             <span class="preset-desc">Rapido</span>
           </label>
@@ -319,7 +319,7 @@
             <span class="preset-desc">Compromesso</span>
           </label>
           <label class="preset-option">
-            <input type="radio" name="preset" value="natural">
+            <input type="radio" name="preset" value="natural" checked>
             <span class="preset-label">🔵 Naturale</span>
             <span class="preset-desc">Frasi complete</span>
           </label>
@@ -406,7 +406,7 @@
         // Micro-chunking state - initialized from preset
         this.microBuffer = '';
         this.microTimer = null;
-        this.currentPreset = 'simultaneous';
+        this.currentPreset = 'natural';
         this.applyPreset(this.currentPreset);
 
         // Dedup state (avoid STT repeating same phrase)
