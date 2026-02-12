@@ -275,6 +275,10 @@
     let ttsWatchdog = null;
     let wakeLock = null;
     const TTS_WATCHDOG_MS = 15000;  // Max time for a single utterance (generous to avoid interruption)
+    let currentLang = 'en';
+    let lastProcessedSeq = -1;
+    let pendingChunks = new Map();
+    let backlogInterval = null;
 
     // Wake Lock helpers
     async function requestWakeLock() {
@@ -334,6 +338,75 @@
     function updateStats() {
       chunksReceivedEl.textContent = chunksReceived;
       queueSizeEl.textContent = queue.length + (speaking ? 1 : 0);
+    }
+
+    // ==========================================
+    // CHUNK SEQUENCE ORDERING (P1)
+    // ==========================================
+
+    function processChunk(data) {
+      const { text, seq } = data;
+
+      // Scarta chunk già processati (duplicati)
+      if (seq <= lastProcessedSeq) {
+        console.log('[Visitor] Chunk duplicato scartato:', seq);
+        return;
+      }
+
+      // Se è il prossimo in sequenza, processalo subito
+      if (seq === lastProcessedSeq + 1) {
+        enqueueAndSpeak(text, currentLang);
+        lastProcessedSeq = seq;
+
+        // Processa eventuali chunk pendenti consecutivi
+        while (pendingChunks.has(lastProcessedSeq + 1)) {
+          const next = pendingChunks.get(lastProcessedSeq + 1);
+          pendingChunks.delete(lastProcessedSeq + 1);
+          enqueueAndSpeak(next.text, currentLang);
+          lastProcessedSeq++;
+        }
+      } else {
+        // Chunk fuori ordine: metti in attesa
+        pendingChunks.set(seq, { text });
+        console.log(`[Visitor] Chunk #${seq} fuori ordine, in attesa (ultimo: ${lastProcessedSeq})`);
+
+        // Timeout: dopo 200ms processa comunque
+        setTimeout(() => {
+          if (pendingChunks.has(seq)) {
+            console.log('[Visitor] Timeout chunk pendente, processo tutti');
+            const sorted = [...pendingChunks.keys()].sort((a, b) => a - b);
+            for (const s of sorted) {
+              if (s > lastProcessedSeq) {
+                enqueueAndSpeak(pendingChunks.get(s).text, currentLang);
+                lastProcessedSeq = s;
+              }
+              pendingChunks.delete(s);
+            }
+          }
+        }, 200);
+      }
+    }
+
+    // ==========================================
+    // AUTO-PRESET ON BACKLOG (P3)
+    // ==========================================
+
+    function checkBacklogAndAdaptPreset() {
+      const estimatedBacklogSeconds = queue.length * 2;
+
+      if (estimatedBacklogSeconds > 6) {
+        fetch('/preset-suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang: currentLang, preset: 'simultaneous' })
+        }).catch(() => {});
+      } else if (estimatedBacklogSeconds < 2) {
+        fetch('/preset-suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang: currentLang, preset: 'natural' })
+        }).catch(() => {});
+      }
     }
 
     function pickVoice(lang) {
@@ -412,14 +485,14 @@
           } else {
             setStatus('connected', '🟢 Connesso - In ascolto');
           }
-        }, 80);
+        }, 100);
       };
 
       u.onerror = (e) => {
         console.error('[Visitor] TTS error:', e);
         speaking = false;
         if (ttsWatchdog) clearTimeout(ttsWatchdog);
-        setTimeout(() => speakNext(lang), 80);
+        setTimeout(() => speakNext(lang), 100);
       };
 
       console.log('[Visitor] Speaking:', text.substring(0, 50) + '...');
@@ -441,7 +514,13 @@
       addTranscript(cleaned);
       chunksReceived++;
       updateStats();
-      speakNext(lang);
+
+      // Micro-delay for first chunk after silence to avoid TTS cuts
+      if (!speaking && queue.length === 1) {
+        setTimeout(() => speakNext(lang), 40);
+      } else if (!speaking) {
+        speakNext(lang);
+      }
     }
 
     function connectSSE(lang) {
@@ -466,18 +545,16 @@
       es.addEventListener("chunk", (ev) => {
         const data = JSON.parse(ev.data);
         console.log('[Visitor] Received chunk #' + data.seq);
-        enqueueAndSpeak(data.text, lang);
+        processChunk(data);
       });
 
       es.onerror = (e) => {
         console.error('[Visitor] SSE error:', e);
-        setStatus('inactive', '🔴 Connessione persa');
-
-        // EventSource has built-in reconnection, don't manually reconnect
-        // Only reconnect if the connection is definitively closed
         if (es.readyState === EventSource.CLOSED) {
+          setStatus('inactive', '🔴 Connessione persa');
           console.log('[Visitor] Connection closed permanently');
         } else {
+          setStatus('connecting', '🔄 Riconnessione...');
           console.log('[Visitor] EventSource will auto-reconnect...');
         }
       };
@@ -485,11 +562,18 @@
 
     document.getElementById("start").onclick = async () => {
       const lang = document.getElementById("lang").value;
+      currentLang = lang;
+      lastProcessedSeq = -1;
+      pendingChunks.clear();
       console.log('[Visitor] Starting with language:', lang);
 
       await warmupTTS(lang);
       connectSSE(lang);
       await requestWakeLock();
+
+      // Start backlog monitoring for auto-preset (P3)
+      if (backlogInterval) clearInterval(backlogInterval);
+      backlogInterval = setInterval(checkBacklogAndAdaptPreset, 5000);
 
       // iOS workaround: speak silent utterance to unlock audio
       try {
@@ -511,6 +595,9 @@
       window.speechSynthesis.cancel();
       speaking = false;
       if (ttsWatchdog) clearTimeout(ttsWatchdog);
+      if (backlogInterval) { clearInterval(backlogInterval); backlogInterval = null; }
+      lastProcessedSeq = -1;
+      pendingChunks.clear();
       await releaseWakeLock();
       setStatus('inactive', '⏹ Stop');
       chunksReceived = 0;

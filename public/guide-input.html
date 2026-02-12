@@ -224,7 +224,7 @@
 
     .stats {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 10px;
       margin-top: 20px;
     }
@@ -353,6 +353,10 @@
           <div class="stat-label">Ricevitore</div>
           <div class="stat-value" id="receiverStatus">🔴</div>
         </div>
+        <div class="stat-box">
+          <div class="stat-label">Ritardo</div>
+          <div class="stat-value" id="latencyDisplay">--</div>
+        </div>
       </div>
 
       <div class="transcript">
@@ -422,6 +426,14 @@
         // Delta transcript tracking (forward-compatible)
         this.gotDelta = false;
 
+        // Latency tracking (P7)
+        this.chunkLatencies = [];
+        this.latencyDisplayEl = null;
+
+        // STT activity tracking for pause flush (P5)
+        this.lastSttActivityTime = Date.now();
+        this.sttPauseInterval = null;
+
         this.initializeUI();
       }
 
@@ -449,6 +461,7 @@
         this.micSelect = document.getElementById('micSelect');
         this.micRefresh = document.getElementById('micRefresh');
         this.wakeLockBadge = document.getElementById('wakeLockBadge');
+        this.latencyDisplayEl = document.getElementById('latencyDisplay');
 
         this.startBtn.addEventListener('click', () => this.start());
         this.stopBtn.addEventListener('click', () => this.stop());
@@ -473,6 +486,20 @@
 
           this.startBtn.disabled = true;
           this.updateStatus('connecting', '⏳ Connessione...');
+
+          // Pre-acquire microphone with selected device (P4: before connect for Android stability)
+          const selectedMic = this.micSelect?.value;
+          let micStream = null;
+          if (selectedMic) {
+            try {
+              micStream = await navigator.mediaDevices.getUserMedia({
+                audio: { deviceId: { exact: selectedMic } }
+              });
+              console.log('[Guide] Pre-acquired mic stream');
+            } catch (e) {
+              console.warn('[Guide] Could not acquire selected mic, using default:', e);
+            }
+          }
 
           // Get token for STT only
           const tokenResponse = await fetch('/api/realtime/token', {
@@ -524,25 +551,20 @@
           this.muteAllAudio();
           setInterval(() => this.muteAllAudio(), 500);
 
-          // Apply selected microphone if not default
-          const selectedMic = this.micSelect?.value;
-          if (selectedMic) {
+          // Apply pre-acquired microphone stream to WebRTC connection (P4)
+          if (micStream) {
             try {
-              const micStream = await navigator.mediaDevices.getUserMedia({
-                audio: { deviceId: { exact: selectedMic } }
-              });
-              // Try to replace audio track in WebRTC peer connection
               const pc = this.session?.transport?.pc || this.session?.pc || this.session?._pc;
               if (pc) {
                 const newTrack = micStream.getAudioTracks()[0];
                 const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
                 if (sender) {
                   await sender.replaceTrack(newTrack);
-                  console.log('[Guide] Applied selected microphone');
+                  console.log('[Guide] Applied selected microphone to WebRTC');
                 }
               }
             } catch (e) {
-              console.warn('[Guide] Could not apply mic selection:', e);
+              console.warn('[Guide] Could not apply mic to WebRTC:', e);
             }
           }
 
@@ -553,6 +575,16 @@
 
           // Request wake lock to keep screen on
           await this.requestWakeLock();
+
+          // Start STT pause flush (P5: flush buffer on 450ms silence in simultaneous mode)
+          this.lastSttActivityTime = Date.now();
+          if (this.sttPauseInterval) clearInterval(this.sttPauseInterval);
+          this.sttPauseInterval = setInterval(() => {
+            const silenceMs = Date.now() - this.lastSttActivityTime;
+            if (silenceMs > 450 && this.microBuffer.trim().length > 0 && this.currentPreset === 'simultaneous') {
+              this.flushMicroBuffer('stt_pause');
+            }
+          }, 100);
 
         } catch (error) {
           console.error('[Guide] Error:', error);
@@ -573,6 +605,9 @@
         if (this.microTimer) clearTimeout(this.microTimer);
         this.microTimer = null;
         this.microBuffer = '';
+
+        // Clean up STT pause interval
+        if (this.sttPauseInterval) { clearInterval(this.sttPauseInterval); this.sttPauseInterval = null; }
 
         // Release wake lock
         await this.releaseWakeLock();
@@ -599,6 +634,7 @@
           switch (event.type) {
             case 'input_audio_buffer.speech_started':
               console.log('[Guide] 🎤 Speech detected');
+              this.lastSttActivityTime = Date.now();
               this.updateStatus('listening', '🎤 Rilevata voce...');
               break;
 
@@ -616,6 +652,7 @@
             case 'conversation.item.input_audio_transcription.delta': {
               const deltaText = (event.delta || '').trim();
               if (deltaText) {
+                this.lastSttActivityTime = Date.now();
                 this.gotDelta = true;
                 console.log('[Guide] 📝 STT delta:', deltaText);
                 this.microBuffer = (this.microBuffer || '') + deltaText;
@@ -630,6 +667,7 @@
 
             // Complete transcription: buffer for micro-chunking
             case 'conversation.item.input_audio_transcription.completed': {
+              this.lastSttActivityTime = Date.now();
               const itText = (event.transcript || '').trim();
               console.log('[Guide] 📝 STT completed:', itText);
 
@@ -694,7 +732,7 @@
         }
 
         // Avoid flushing on Italian connectives (sounds unnatural in TTS)
-        const badEnding = /\b(e|ma|perché|quindi|che|di|a|da|in|con|su|per|un|una|il|lo|la|i|gli|le|al|del|nel)\s*$/i;
+        const badEnding = /\b(e|ma|perché|quindi|che|di|a|da|in|con|su|per|tra|fra|un|una|il|lo|la|i|gli|le|al|del|nel|the|and|but|or|to|of)\s*$/i;
         if (!endsStrong && badEnding.test(buf) && buf.length < this.MICRO_MAX_CHARS) {
           console.log('[Guide] Bad ending, waiting for more text');
           this.scheduleMicroFlush();
@@ -743,44 +781,73 @@
         this.lastSendAt = now;
 
         const chunk = {
-          lang: this.targetLanguage,    // Target language (e.g., 'en')
-          sourceLang: 'it',             // Source language (Italian)
-          sourceText: sourceText,       // Italian text to translate
+          lang: this.targetLanguage,
+          sourceLang: 'it',
+          sourceText: sourceText,
           ts: now,
           seq: ++this.sequenceNumber
         };
 
         console.log(`[Guide] Sending source chunk #${chunk.seq} -> ${chunk.lang}:`, sourceText);
 
-        try {
-          const response = await fetch('/ingest', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(chunk)
-          });
+        const sentAt = Date.now();
+        const result = await this.sendWithRetry(chunk);
 
-          const result = await response.json();
+        if (result) {
+          // Track latency (P7)
+          const latency = Date.now() - sentAt;
+          this.chunkLatencies.push(latency);
+          if (this.chunkLatencies.length > 5) this.chunkLatencies.shift();
+          const avg = this.chunkLatencies.reduce((a, b) => a + b, 0) / this.chunkLatencies.length;
+          this.latencyDisplayEl.textContent = `~${(avg / 1000).toFixed(1)}s`;
 
-          if (result.ok) {
-            this.chunksSent++;
-            this.chunksSentEl.textContent = this.chunksSent;
+          this.chunksSent++;
+          this.chunksSentEl.textContent = this.chunksSent;
 
-            // Show receiver status
-            if (result.hasReceiver) {
-              this.receiverStatusEl.textContent = result.accepted ? '🟢' : '🟠';
-            } else {
-              this.receiverStatusEl.textContent = '🔴';
-            }
-
-            // Show the Italian text we captured
-            this.addToTranscript(sourceText);
-            console.log(`[Guide] Sent. hasReceiver=${result.hasReceiver}, accepted=${result.accepted}`);
+          // Show receiver status
+          if (result.hasReceiver) {
+            this.receiverStatusEl.textContent = result.accepted ? '🟢' : '🟠';
           } else {
-            console.warn('[Guide] Chunk not accepted:', result);
+            this.receiverStatusEl.textContent = '🔴';
           }
-        } catch (error) {
-          console.error('[Guide] Error sending chunk:', error);
+
+          // Check if visitor suggests a different preset (P3: auto-preset)
+          if (result.suggestedPreset && result.suggestedPreset !== this.currentPreset) {
+            console.log(`[Guide] Visitor suggests preset: ${result.suggestedPreset}`);
+            this.applyPreset(result.suggestedPreset);
+            const radio = document.querySelector(`input[name="preset"][value="${result.suggestedPreset}"]`);
+            if (radio) radio.checked = true;
+          }
+
+          this.addToTranscript(sourceText);
+          console.log(`[Guide] Sent. latency=${latency}ms hasReceiver=${result.hasReceiver}`);
         }
+      }
+
+      // Network retry with exponential backoff (P8)
+      async sendWithRetry(chunk, maxRetries = 3) {
+        let delay = 1000;
+        for (let i = 0; i < maxRetries; i++) {
+          try {
+            const response = await fetch('/ingest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(chunk)
+            });
+            const result = await response.json();
+            if (result.ok) return result;
+            console.warn('[Guide] Chunk not accepted:', result);
+            return null;
+          } catch (err) {
+            console.warn(`[Guide] Retry ${i + 1}/${maxRetries} dopo ${delay}ms`);
+            if (i < maxRetries - 1) {
+              await new Promise(r => setTimeout(r, delay));
+              delay *= 2;
+            }
+          }
+        }
+        console.error('[Guide] Chunk failed after retries, dropping');
+        return null;
       }
 
       // ==========================================

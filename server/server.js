@@ -306,6 +306,18 @@ app.get("/sse", (req, res) => {
   });
 });
 
+// Preset suggestions from visitor (P3: auto-preset on backlog)
+let suggestedPresets = {};  // { lang: presetName }
+
+app.post("/preset-suggest", (req, res) => {
+  const { lang, preset } = req.body || {};
+  if (lang && preset) {
+    suggestedPresets[lang] = preset;
+    console.log(`[Preset] Visitor suggests "${preset}" for lang "${lang}"`);
+  }
+  res.json({ ok: true });
+});
+
 // Ingest: riceve chunk dalla guida (sourceText in italiano) e traduce
 app.post("/ingest", async (req, res) => {
   const { sourceText, ts, seq, lang } = req.body || {};
@@ -338,7 +350,8 @@ app.post("/ingest", async (req, res) => {
         ok: true,
         hasReceiver: true,
         receiverLang: currentClient.lang,
-        accepted: true
+        accepted: true,
+        suggestedPreset: suggestedPresets[lang] || null
       });
     } catch (e) {
       console.error('[Ingest] Translation error:', e);
@@ -356,7 +369,8 @@ app.post("/ingest", async (req, res) => {
       ok: true,
       hasReceiver: currentClient !== null,
       receiverLang: currentClient?.lang ?? null,
-      accepted: false
+      accepted: false,
+      suggestedPreset: suggestedPresets[lang] || null
     });
   }
 });
