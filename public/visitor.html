@@ -188,6 +188,16 @@
       border-radius: 6px;
     }
 
+    .wake-lock-badge {
+      text-align: center;
+      font-size: 12px;
+      color: #065f46;
+      background: #d1fae5;
+      padding: 6px 12px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+
     .warning {
       background: #fef3c7;
       border-left: 4px solid #f59e0b;
@@ -232,6 +242,7 @@
     </div>
 
     <div class="status inactive" id="status">Pronto</div>
+    <div class="wake-lock-badge" id="wakeLockBadge" style="display:none">🔒 Schermo attivo</div>
 
     <div class="stats">
       <div class="stat-box">
@@ -262,7 +273,42 @@
     let chunksReceived = 0;
     let speakingStartedAt = 0;
     let ttsWatchdog = null;
-    const TTS_WATCHDOG_MS = 8000;  // Max time for a single utterance
+    let wakeLock = null;
+    const TTS_WATCHDOG_MS = 15000;  // Max time for a single utterance (generous to avoid interruption)
+
+    // Wake Lock helpers
+    async function requestWakeLock() {
+      if (!('wakeLock' in navigator)) {
+        console.warn('[Visitor] Wake Lock API not supported');
+        return;
+      }
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        document.getElementById('wakeLockBadge').style.display = '';
+        wakeLock.addEventListener('release', () => {
+          document.getElementById('wakeLockBadge').style.display = 'none';
+          wakeLock = null;
+        });
+        console.log('[Visitor] Wake lock acquired');
+      } catch (e) {
+        console.warn('[Visitor] Wake lock failed:', e);
+      }
+    }
+
+    async function releaseWakeLock() {
+      if (wakeLock) {
+        try { await wakeLock.release(); } catch (e) { /* already released */ }
+        wakeLock = null;
+        document.getElementById('wakeLockBadge').style.display = 'none';
+      }
+    }
+
+    // Reactivate wake lock on visibility change
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState === 'visible' && es && !wakeLock) {
+        await requestWakeLock();
+      }
+    });
 
     const statusEl = document.getElementById("status");
     const transcriptLog = document.getElementById("transcriptLog");
@@ -384,12 +430,12 @@
       const cleaned = text.trim();
       if (!cleaned) return;
 
-      // If queue is getting full, merge with last item instead of dropping
-      if (queue.length >= 6) {
-        console.warn('[Visitor] Queue full, merging with last chunk');
-        queue[queue.length - 1] += ' ' + cleaned;
-      } else {
-        queue.push(cleaned);
+      queue.push(cleaned);
+
+      // If queue too long, trim oldest (never interrupt current playback)
+      while (queue.length > 10) {
+        const dropped = queue.shift();
+        console.warn('[Visitor] Queue overflow, dropped oldest:', dropped.substring(0, 30));
       }
 
       addTranscript(cleaned);
@@ -443,6 +489,7 @@
 
       await warmupTTS(lang);
       connectSSE(lang);
+      await requestWakeLock();
 
       // iOS workaround: speak silent utterance to unlock audio
       try {
@@ -454,7 +501,7 @@
       }
     };
 
-    document.getElementById("stop").onclick = () => {
+    document.getElementById("stop").onclick = async () => {
       if (es) {
         es.close();
         es = null;
@@ -464,6 +511,7 @@
       window.speechSynthesis.cancel();
       speaking = false;
       if (ttsWatchdog) clearTimeout(ttsWatchdog);
+      await releaseWakeLock();
       setStatus('inactive', '⏹ Stop');
       chunksReceived = 0;
       updateStats();

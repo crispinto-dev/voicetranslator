@@ -188,6 +188,40 @@
       margin-top: 8px;
     }
 
+    .wake-lock-badge {
+      text-align: center;
+      font-size: 12px;
+      color: #065f46;
+      background: #d1fae5;
+      padding: 6px 12px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+
+    .mic-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .mic-group select {
+      flex: 1;
+    }
+
+    .mic-refresh {
+      padding: 10px 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      background: white;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .mic-refresh:hover {
+      border-color: #f59e0b;
+    }
+
     .stats {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -293,6 +327,14 @@
         <p class="preset-hint">Più veloce → meno ritardo | Più naturale → frasi più complete</p>
       </div>
 
+      <div class="form-group">
+        <label for="micSelect">🎤 Microfono:</label>
+        <div class="mic-group">
+          <select id="micSelect"><option value="">Default del sistema</option></select>
+          <button type="button" class="mic-refresh" id="micRefresh" title="Aggiorna lista">🔄</button>
+        </div>
+      </div>
+
       <button class="btn btn-primary" id="startBtn">
         Avvia Modalità Guida
       </button>
@@ -300,6 +342,7 @@
 
     <div id="activeSession" class="hidden">
       <div class="status inactive" id="status">Inattivo</div>
+      <div class="wake-lock-badge" id="wakeLockBadge" style="display:none">🔒 Schermo attivo</div>
 
       <div class="stats">
         <div class="stat-box">
@@ -373,6 +416,12 @@
         // Anti-burst: minimum gap between sends
         this.lastSendAt = 0;
 
+        // Wake lock
+        this.wakeLock = null;
+
+        // Delta transcript tracking (forward-compatible)
+        this.gotDelta = false;
+
         this.initializeUI();
       }
 
@@ -397,8 +446,21 @@
         this.startBtn = document.getElementById('startBtn');
         this.stopBtn = document.getElementById('stopBtn');
 
+        this.micSelect = document.getElementById('micSelect');
+        this.micRefresh = document.getElementById('micRefresh');
+        this.wakeLockBadge = document.getElementById('wakeLockBadge');
+
         this.startBtn.addEventListener('click', () => this.start());
         this.stopBtn.addEventListener('click', () => this.stop());
+        this.micRefresh.addEventListener('click', () => this.enumerateMics());
+        this.enumerateMics();
+
+        // Reactivate wake lock when tab becomes visible again
+        document.addEventListener('visibilitychange', async () => {
+          if (document.visibilityState === 'visible' && this.isRunning && !this.wakeLock) {
+            await this.requestWakeLock();
+          }
+        });
       }
 
       async start() {
@@ -462,10 +524,35 @@
           this.muteAllAudio();
           setInterval(() => this.muteAllAudio(), 500);
 
+          // Apply selected microphone if not default
+          const selectedMic = this.micSelect?.value;
+          if (selectedMic) {
+            try {
+              const micStream = await navigator.mediaDevices.getUserMedia({
+                audio: { deviceId: { exact: selectedMic } }
+              });
+              // Try to replace audio track in WebRTC peer connection
+              const pc = this.session?.transport?.pc || this.session?.pc || this.session?._pc;
+              if (pc) {
+                const newTrack = micStream.getAudioTracks()[0];
+                const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
+                if (sender) {
+                  await sender.replaceTrack(newTrack);
+                  console.log('[Guide] Applied selected microphone');
+                }
+              }
+            } catch (e) {
+              console.warn('[Guide] Could not apply mic selection:', e);
+            }
+          }
+
           this.updateStatus('active', '✅ Attivo - Parla nel microfono');
           this.setupForm.classList.add('hidden');
           this.activeSession.classList.remove('hidden');
           this.isRunning = true;
+
+          // Request wake lock to keep screen on
+          await this.requestWakeLock();
 
         } catch (error) {
           console.error('[Guide] Error:', error);
@@ -486,6 +573,9 @@
         if (this.microTimer) clearTimeout(this.microTimer);
         this.microTimer = null;
         this.microBuffer = '';
+
+        // Release wake lock
+        await this.releaseWakeLock();
 
         this.setupForm.classList.remove('hidden');
         this.activeSession.classList.add('hidden');
@@ -522,22 +612,40 @@
               }, 300);
               break;
 
-            // THE KEY EVENT: when input transcription is complete, buffer for micro-chunking
+            // Delta transcript (forward-compatible: if API adds streaming input transcription)
+            case 'conversation.item.input_audio_transcription.delta': {
+              const deltaText = (event.delta || '').trim();
+              if (deltaText) {
+                this.gotDelta = true;
+                console.log('[Guide] 📝 STT delta:', deltaText);
+                this.microBuffer = (this.microBuffer || '') + deltaText;
+                if (this.microBuffer.length >= this.MICRO_MAX_CHARS) {
+                  this.flushMicroBuffer('delta_max');
+                } else {
+                  this.scheduleMicroFlush();
+                }
+              }
+              break;
+            }
+
+            // Complete transcription: buffer for micro-chunking
             case 'conversation.item.input_audio_transcription.completed': {
               const itText = (event.transcript || '').trim();
               console.log('[Guide] 📝 STT completed:', itText);
 
-              if (itText) {
-                // Add to micro-chunk buffer
+              if (this.gotDelta) {
+                // Already processed via deltas - just flush on strong punctuation
+                this.gotDelta = false;
+                if (/[.!?]$/.test(itText) && this.microBuffer) {
+                  this.flushMicroBuffer('punct_after_delta');
+                }
+              } else if (itText) {
+                // No deltas - use completed text as before
                 this.microBuffer = (this.microBuffer ? (this.microBuffer + ' ') : '') + itText;
-
-                // Flush if: strong punctuation (. ! ?) OR buffer too long
-                // Note: : and ; are "soft" - help split but don't trigger flush
                 const endsStrong = /[.!?]$/.test(itText);
                 if (endsStrong || this.microBuffer.length >= this.MICRO_MAX_CHARS) {
                   this.flushMicroBuffer(endsStrong ? 'punct' : 'max_chars');
                 } else {
-                  // Otherwise schedule timed flush
                   this.scheduleMicroFlush();
                 }
               }
@@ -672,6 +780,70 @@
           }
         } catch (error) {
           console.error('[Guide] Error sending chunk:', error);
+        }
+      }
+
+      // ==========================================
+      // WAKE LOCK
+      // ==========================================
+
+      async requestWakeLock() {
+        if (!('wakeLock' in navigator)) {
+          console.warn('[Guide] Wake Lock API not supported');
+          return;
+        }
+        try {
+          this.wakeLock = await navigator.wakeLock.request('screen');
+          this.wakeLockBadge.style.display = '';
+          this.wakeLock.addEventListener('release', () => {
+            this.wakeLockBadge.style.display = 'none';
+            this.wakeLock = null;
+          });
+          console.log('[Guide] Wake lock acquired');
+        } catch (e) {
+          console.warn('[Guide] Wake lock failed:', e);
+        }
+      }
+
+      async releaseWakeLock() {
+        if (this.wakeLock) {
+          try { await this.wakeLock.release(); } catch (e) { /* already released */ }
+          this.wakeLock = null;
+          this.wakeLockBadge.style.display = 'none';
+        }
+      }
+
+      // ==========================================
+      // MICROPHONE SELECTION
+      // ==========================================
+
+      async enumerateMics() {
+        try {
+          // Request permission to get device labels
+          const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          tempStream.getTracks().forEach(t => t.stop());
+
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const mics = devices.filter(d => d.kind === 'audioinput');
+
+          const saved = localStorage.getItem('voicetranslator_mic');
+          this.micSelect.innerHTML = '<option value="">Default del sistema</option>';
+
+          mics.forEach(mic => {
+            const opt = document.createElement('option');
+            opt.value = mic.deviceId;
+            opt.textContent = mic.label || `Microfono ${mic.deviceId.substring(0, 8)}`;
+            if (saved && saved === mic.deviceId) opt.selected = true;
+            this.micSelect.appendChild(opt);
+          });
+
+          this.micSelect.onchange = () => {
+            localStorage.setItem('voicetranslator_mic', this.micSelect.value);
+          };
+
+          console.log(`[Guide] Found ${mics.length} microphone(s)`);
+        } catch (e) {
+          console.warn('[Guide] Could not enumerate mics:', e);
         }
       }
 
