@@ -771,66 +771,75 @@
       async sendSourceText(sourceText) {
         if (!sourceText) return;
 
-        const now = Date.now();
+        try {
+          const now = Date.now();
 
-        // Anti-burst: ensure minimum gap between sends
-        const gap = now - this.lastSendAt;
-        if (gap < this.MIN_SEND_GAP_MS) {
-          setTimeout(() => this.sendSourceText(sourceText), this.MIN_SEND_GAP_MS - gap);
-          return;
-        }
+          // Anti-burst: ensure minimum gap between sends
+          const gap = now - this.lastSendAt;
+          if (gap < this.MIN_SEND_GAP_MS) {
+            setTimeout(() => this.sendSourceText(sourceText), this.MIN_SEND_GAP_MS - gap);
+            return;
+          }
 
-        // Dedup: skip if same text was sent recently (STT sometimes repeats)
-        const normalized = sourceText.replace(/\s+/g, ' ').trim().toLowerCase();
-        if (normalized && normalized === this.lastSentText && (now - this.lastSentAt) < 2500) {
-          console.log('[Guide] Dedup skip:', sourceText.substring(0, 30) + '...');
-          return;
-        }
-        this.lastSentText = normalized;
-        this.lastSendAt = now;
+          // Dedup: skip if same text was sent recently (STT sometimes repeats)
+          const normalized = sourceText.replace(/\s+/g, ' ').trim().toLowerCase();
+          if (normalized && normalized === this.lastSentText && (now - this.lastSentAt) < 2500) {
+            console.log('[Guide] Dedup skip:', sourceText.substring(0, 30) + '...');
+            return;
+          }
+          this.lastSentText = normalized;
+          this.lastSendAt = now;
 
-        const chunk = {
-          lang: this.targetLanguage,
-          sourceLang: 'it',
-          sourceText: sourceText,
-          ts: now,
-          seq: ++this.sequenceNumber
-        };
+          const chunk = {
+            lang: this.targetLanguage,
+            sourceLang: 'it',
+            sourceText: sourceText,
+            ts: now,
+            seq: ++this.sequenceNumber
+          };
 
-        console.log(`[Guide] Sending source chunk #${chunk.seq} -> ${chunk.lang}:`, sourceText);
+          console.log(`[Guide] Sending source chunk #${chunk.seq} -> ${chunk.lang}:`, sourceText);
 
-        const sentAt = Date.now();
-        const result = await this.sendWithRetry(chunk);
+          const sentAt = Date.now();
+          const result = await this.sendWithRetry(chunk);
 
-        if (result) {
-          // Track latency (P7)
-          const latency = Date.now() - sentAt;
-          this.chunkLatencies.push(latency);
-          if (this.chunkLatencies.length > 5) this.chunkLatencies.shift();
-          const avg = this.chunkLatencies.reduce((a, b) => a + b, 0) / this.chunkLatencies.length;
-          this.latencyDisplayEl.textContent = `~${(avg / 1000).toFixed(1)}s`;
+          if (result) {
+            // Track latency (P7)
+            const latency = Date.now() - sentAt;
+            this.chunkLatencies.push(latency);
+            if (this.chunkLatencies.length > 5) this.chunkLatencies.shift();
+            const avg = this.chunkLatencies.reduce((a, b) => a + b, 0) / this.chunkLatencies.length;
+            this.latencyDisplayEl.textContent = `~${(avg / 1000).toFixed(1)}s`;
 
-          this.chunksSent++;
-          this.chunksSentEl.textContent = this.chunksSent;
+            this.chunksSent++;
+            this.chunksSentEl.textContent = this.chunksSent;
 
-          // Show receiver status
-          if (result.hasReceiver) {
-            this.receiverStatusEl.textContent = result.accepted ? '🟢' : '🟠';
+            // Show receiver status
+            this.updateReceiverStatus(result.hasReceiver ? (result.accepted ? 'ok' : 'mismatch') : 'offline');
+
+            // Check if visitor suggests a different preset (P3: auto-preset)
+            if (result.suggestedPreset && result.suggestedPreset !== this.currentPreset) {
+              console.log(`[Guide] Visitor suggests preset: ${result.suggestedPreset}`);
+              this.applyPreset(result.suggestedPreset);
+              const radio = document.querySelector(`input[name="preset"][value="${result.suggestedPreset}"]`);
+              if (radio) radio.checked = true;
+            }
+
+            this.addToTranscript(sourceText);
+            console.log(`[Guide] Sent. latency=${latency}ms hasReceiver=${result.hasReceiver}`);
           } else {
-            this.receiverStatusEl.textContent = '🔴';
+            // sendWithRetry returned null → all retries failed
+            this.updateReceiverStatus('error');
           }
-
-          // Check if visitor suggests a different preset (P3: auto-preset)
-          if (result.suggestedPreset && result.suggestedPreset !== this.currentPreset) {
-            console.log(`[Guide] Visitor suggests preset: ${result.suggestedPreset}`);
-            this.applyPreset(result.suggestedPreset);
-            const radio = document.querySelector(`input[name="preset"][value="${result.suggestedPreset}"]`);
-            if (radio) radio.checked = true;
-          }
-
-          this.addToTranscript(sourceText);
-          console.log(`[Guide] Sent. latency=${latency}ms hasReceiver=${result.hasReceiver}`);
+        } catch (err) {
+          console.error('[Guide] sendSourceText error:', err);
+          this.updateReceiverStatus('error');
         }
+      }
+
+      updateReceiverStatus(status) {
+        const icons = { ok: '🟢', mismatch: '🟠', offline: '🔴', error: '🔴' };
+        this.receiverStatusEl.textContent = icons[status] || '🔴';
       }
 
       // Network retry with exponential backoff (P8)

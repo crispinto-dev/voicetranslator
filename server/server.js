@@ -318,9 +318,9 @@ app.post("/preset-suggest", (req, res) => {
   res.json({ ok: true });
 });
 
-// Debounce state for translation batching (reduces API calls, improves coherence)
-let pendingTranslation = null;
-let debounceTimer = null;
+// Per-language debounce state for translation batching (reduces API calls, improves coherence)
+const pendingByLang = new Map();   // lang → { texts[], ts, seq }
+const timerByLang   = new Map();   // lang → timeoutId
 const DEBOUNCE_MS = 250;
 
 // Ingest: riceve chunk dalla guida, accumula con debounce, poi traduce
@@ -347,21 +347,26 @@ app.post("/ingest", (req, res) => {
   // If no receiver, don't accumulate or translate
   if (!receiverOk) return;
 
-  // Accumulate text for debounced translation
-  if (!pendingTranslation || pendingTranslation.lang !== lang) {
-    pendingTranslation = { lang, texts: [sourceText], ts, seq };
+  const lk = lang.toLowerCase();
+
+  // Accumulate text for this language's debounce bucket
+  const pending = pendingByLang.get(lk);
+  if (!pending) {
+    pendingByLang.set(lk, { lang: lk, texts: [sourceText], ts, seq });
   } else {
-    pendingTranslation.texts.push(sourceText);
-    pendingTranslation.seq = seq;
-    pendingTranslation.ts = ts;
+    pending.texts.push(sourceText);
+    pending.seq = seq;
+    pending.ts = ts;
   }
 
-  // Reset debounce timer
-  if (debounceTimer) clearTimeout(debounceTimer);
+  // Reset this language's debounce timer
+  const oldTimer = timerByLang.get(lk);
+  if (oldTimer) clearTimeout(oldTimer);
 
-  debounceTimer = setTimeout(async () => {
-    const batch = pendingTranslation;
-    pendingTranslation = null;
+  timerByLang.set(lk, setTimeout(async () => {
+    timerByLang.delete(lk);
+    const batch = pendingByLang.get(lk);
+    pendingByLang.delete(lk);
     if (!batch) return;
 
     const combinedText = batch.texts.join(' ');
@@ -381,7 +386,7 @@ app.post("/ingest", (req, res) => {
     } catch (e) {
       console.error('[Ingest] Batch translation error:', e);
     }
-  }, DEBOUNCE_MS);
+  }, DEBOUNCE_MS));
 });
 
 server.listen(PORT, () => {

@@ -274,10 +274,10 @@
     let speakingStartedAt = 0;
     let ttsWatchdog = null;
     let wakeLock = null;
-    // Dynamic TTS watchdog based on text length
+    // Dynamic TTS watchdog based on text length (8-15s margin)
     function getWatchdogTimeout(text) {
       const estimatedDuration = (text.length / 50) * 1000; // ~50 chars/sec spoken
-      return Math.min(12000, Math.max(7000, estimatedDuration + 3000));
+      return Math.min(15000, Math.max(8000, estimatedDuration + 4000));
     }
     let currentLang = 'en';
     let lastProcessedSeq = -1;
@@ -468,22 +468,26 @@
       updateStats();
 
       // Clear any previous watchdog
-      if (ttsWatchdog) clearTimeout(ttsWatchdog);
+      if (ttsWatchdog) clearInterval(ttsWatchdog);
 
-      // Dynamic watchdog based on text length (7-12s)
+      // Watchdog: setInterval(1s) checks elapsed time AND backlog before canceling
       const watchdogMs = getWatchdogTimeout(text);
-      ttsWatchdog = setTimeout(() => {
-        if (speaking) {
-          console.warn(`[Visitor] TTS watchdog triggered after ${watchdogMs}ms, forcing recovery`);
+      ttsWatchdog = setInterval(() => {
+        if (!speaking) { clearInterval(ttsWatchdog); ttsWatchdog = null; return; }
+        const elapsed = Date.now() - speakingStartedAt;
+        if (elapsed >= watchdogMs && queue.length >= 1) {
+          console.warn(`[Visitor] TTS watchdog: elapsed ${elapsed}ms, backlog ${queue.length}, forcing recovery`);
+          clearInterval(ttsWatchdog);
+          ttsWatchdog = null;
           window.speechSynthesis.cancel();
           speaking = false;
           speakNext(lang);
         }
-      }, watchdogMs);
+      }, 1000);
 
       u.onend = () => {
         speaking = false;
-        if (ttsWatchdog) clearTimeout(ttsWatchdog);
+        if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
         setTimeout(() => {
           if (queue.length > 0) {
             speakNext(lang);
@@ -496,7 +500,7 @@
       u.onerror = (e) => {
         console.error('[Visitor] TTS error:', e);
         speaking = false;
-        if (ttsWatchdog) clearTimeout(ttsWatchdog);
+        if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
         setTimeout(() => speakNext(lang), 100);
       };
 
@@ -601,7 +605,7 @@
       queue = [];
       window.speechSynthesis.cancel();
       speaking = false;
-      if (ttsWatchdog) clearTimeout(ttsWatchdog);
+      if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
       if (backlogInterval) { clearInterval(backlogInterval); backlogInterval = null; }
       lastProcessedSeq = -1;
       pendingChunks.clear();
