@@ -377,9 +377,9 @@
     const PRESETS = {
       simultaneous: {
         name: 'Simultaneo',
-        MICRO_MAX_CHARS: 100,
-        MICRO_MIN_CHARS: 22,
-        MICRO_FLUSH_MS: 750,
+        MICRO_MAX_CHARS: 80,
+        MICRO_MIN_CHARS: 15,
+        MICRO_FLUSH_MS: 600,
         MIN_SEND_GAP_MS: 200
       },
       balanced: {
@@ -391,9 +391,9 @@
       },
       natural: {
         name: 'Naturale',
-        MICRO_MAX_CHARS: 210,
-        MICRO_MIN_CHARS: 58,
-        MICRO_FLUSH_MS: 1600,
+        MICRO_MAX_CHARS: 140,
+        MICRO_MIN_CHARS: 25,
+        MICRO_FLUSH_MS: 1000,
         MIN_SEND_GAP_MS: 480
       }
     };
@@ -435,6 +435,11 @@
         // STT activity tracking for pause flush (P5)
         this.lastSttActivityTime = Date.now();
         this.sttPauseInterval = null;
+
+        // Mic stream reference for explicit cleanup on stop (E)
+        this.micStream = null;
+        // Guard against infinite reconnect loop (A)
+        this._micRetry = false;
 
         this.initializeUI();
       }
@@ -489,18 +494,20 @@
           this.startBtn.disabled = true;
           this.updateStatus('connecting', '⏳ Connessione...');
 
-          // Pre-acquire microphone with selected device (P4: before connect for Android stability)
+          // Pre-acquire microphone with anti-noise constraints (before connect for Android stability)
           const selectedMic = this.micSelect?.value;
-          let micStream = null;
-          if (selectedMic) {
-            try {
-              micStream = await navigator.mediaDevices.getUserMedia({
-                audio: { deviceId: { exact: selectedMic } }
-              });
-              console.log('[Guide] Pre-acquired mic stream');
-            } catch (e) {
-              console.warn('[Guide] Could not acquire selected mic, using default:', e);
-            }
+          const audioConstraints = {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          };
+          if (selectedMic) audioConstraints.deviceId = { exact: selectedMic };
+          try {
+            this.micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+            console.log('[Guide] Pre-acquired mic:', this.micStream.getAudioTracks()[0]?.label);
+          } catch (e) {
+            console.warn('[Guide] Could not pre-acquire mic:', e);
+            this.micStream = null;
           }
 
           // Get token for STT only
@@ -535,7 +542,7 @@
                 type: 'server_vad',
                 threshold: 0.45,          // Slightly lower to catch speech starts
                 prefixPaddingMs: 300,
-                silenceDurationMs: 1000,  // Longer pause = more natural segmentation
+                silenceDurationMs: 750,   // Lowered for noisy environments
                 createResponse: false,    // NO response - STT only
                 interruptResponse: false
               }
@@ -553,22 +560,9 @@
           this.muteAllAudio();
           this.muteInterval = setInterval(() => this.muteAllAudio(), 500);
 
-          // Apply pre-acquired microphone stream to WebRTC connection (P4)
-          if (micStream) {
-            try {
-              const pc = this.session?.transport?.pc || this.session?.pc || this.session?._pc;
-              if (pc) {
-                const newTrack = micStream.getAudioTracks()[0];
-                const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
-                if (sender) {
-                  await sender.replaceTrack(newTrack);
-                  console.log('[Guide] Applied selected microphone to WebRTC');
-                }
-              }
-            } catch (e) {
-              console.warn('[Guide] Could not apply mic to WebRTC:', e);
-            }
-          }
+          // Apply pre-acquired mic to WebRTC, with reconnect fallback if replaceTrack fails
+          await this.applyMicToWebRTC();
+          this._micRetry = false;
 
           this.updateStatus('active', '✅ Attivo - Parla nel microfono');
           this.setupForm.classList.add('hidden');
@@ -609,6 +603,15 @@
         if (this.speechStoppedTimer) clearTimeout(this.speechStoppedTimer);
         this.speechStoppedTimer = null;
         this.microBuffer = '';
+
+        // Stop microphone stream explicitly (E: prevents "still hearing" after stop)
+        if (this.micStream) {
+          this.micStream.getTracks().forEach(t => {
+            t.stop();
+            console.log('[Guide] Mic track stopped:', t.label);
+          });
+          this.micStream = null;
+        }
 
         // Clean up intervals
         if (this.sttPauseInterval) { clearInterval(this.sttPauseInterval); this.sttPauseInterval = null; }
@@ -766,6 +769,44 @@
         }
 
         console.log(`[Guide] Micro flush (${reason}): ${chunks.length} chunk(s)`);
+      }
+
+      // ==========================================
+      // MICROPHONE → WEBRTC (A)
+      // ==========================================
+
+      async applyMicToWebRTC() {
+        if (!this.micStream) return;
+        try {
+          const pc = this.session?.transport?.pc || this.session?.pc || this.session?._pc;
+          if (pc) {
+            const newTrack = this.micStream.getAudioTracks()[0];
+            const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
+            if (sender) {
+              await sender.replaceTrack(newTrack);
+              console.log('[Guide] Mic applied via replaceTrack:', newTrack.label);
+              return;
+            }
+          }
+          // replaceTrack not possible (no PC or no sender)
+          if (!this._micRetry) {
+            console.warn('[Guide] replaceTrack failed (no PC/sender), scheduling reconnect...');
+            this.updateStatus('connecting', '🔄 Riavvio per microfono esterno...');
+            setTimeout(() => this._reconnectForMic(), 800);
+          }
+        } catch (e) {
+          console.warn('[Guide] replaceTrack error:', e);
+          if (!this._micRetry) {
+            setTimeout(() => this._reconnectForMic(), 800);
+          }
+        }
+      }
+
+      async _reconnectForMic() {
+        await this.stop();
+        await new Promise(r => setTimeout(r, 500));
+        this._micRetry = true;
+        await this.start();
       }
 
       async sendSourceText(sourceText) {

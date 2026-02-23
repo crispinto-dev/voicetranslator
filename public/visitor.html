@@ -263,6 +263,10 @@
     <div class="warning">
       ⚠️ Assicurati che la guida abbia avviato /guide-input.html
     </div>
+
+    <div id="noChunkWarning" style="display:none; color:#92400e; padding:10px; background:#fef3c7; border-left:4px solid #f59e0b; border-radius:8px; font-size:13px; margin-top:10px;">
+      ⚠️ Nessun audio ricevuto negli ultimi 15 secondi. Verificare che la guida stia parlando.
+    </div>
   </div>
 
   <script>
@@ -283,6 +287,8 @@
     let lastProcessedSeq = -1;
     let pendingChunks = new Map();
     let backlogInterval = null;
+    let lastChunkTime = Date.now();
+    let noChunkInterval = null;
 
     // Wake Lock helpers
     async function requestWakeLock() {
@@ -342,6 +348,14 @@
     function updateStats() {
       chunksReceivedEl.textContent = chunksReceived;
       queueSizeEl.textContent = queue.length + (speaking ? 1 : 0);
+    }
+
+    function showNoChunkWarning() {
+      document.getElementById('noChunkWarning').style.display = 'block';
+    }
+
+    function hideNoChunkWarning() {
+      document.getElementById('noChunkWarning').style.display = 'none';
     }
 
     // ==========================================
@@ -547,6 +561,14 @@
       es.addEventListener("hello", (ev) => {
         console.log('[Visitor] Connected to SSE');
         setStatus('connected', '🟢 Connesso - In ascolto');
+        // Start no-chunk warning monitor
+        lastChunkTime = Date.now();
+        if (noChunkInterval) clearInterval(noChunkInterval);
+        noChunkInterval = setInterval(() => {
+          if (es && Date.now() - lastChunkTime > 15000) {
+            showNoChunkWarning();
+          }
+        }, 5000);
       });
 
       es.addEventListener("ping", () => {
@@ -554,6 +576,8 @@
       });
 
       es.addEventListener("chunk", (ev) => {
+        lastChunkTime = Date.now();
+        hideNoChunkWarning();
         const data = JSON.parse(ev.data);
         console.log('[Visitor] Received chunk #' + data.seq);
         processChunk(data);
@@ -607,6 +631,8 @@
       speaking = false;
       if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
       if (backlogInterval) { clearInterval(backlogInterval); backlogInterval = null; }
+      if (noChunkInterval) { clearInterval(noChunkInterval); noChunkInterval = null; }
+      hideNoChunkWarning();
       lastProcessedSeq = -1;
       pendingChunks.clear();
       await releaseWakeLock();
