@@ -377,24 +377,27 @@
     const PRESETS = {
       simultaneous: {
         name: 'Simultaneo',
-        MICRO_MAX_CHARS: 80,
-        MICRO_MIN_CHARS: 15,
-        MICRO_FLUSH_MS: 600,
-        MIN_SEND_GAP_MS: 200
+        MICRO_MAX_CHARS: 100,
+        MICRO_MIN_CHARS: 20,
+        MICRO_FLUSH_MS: 650,
+        MIN_SEND_GAP_MS: 200,
+        STT_PAUSE_MS: 450
       },
       balanced: {
         name: 'Equilibrato',
-        MICRO_MAX_CHARS: 150,
-        MICRO_MIN_CHARS: 40,
-        MICRO_FLUSH_MS: 1100,
-        MIN_SEND_GAP_MS: 320
+        MICRO_MAX_CHARS: 140,
+        MICRO_MIN_CHARS: 35,
+        MICRO_FLUSH_MS: 900,
+        MIN_SEND_GAP_MS: 280,
+        STT_PAUSE_MS: 600
       },
       natural: {
         name: 'Naturale',
-        MICRO_MAX_CHARS: 140,
-        MICRO_MIN_CHARS: 25,
-        MICRO_FLUSH_MS: 1000,
-        MIN_SEND_GAP_MS: 480
+        MICRO_MAX_CHARS: 200,
+        MICRO_MIN_CHARS: 50,
+        MICRO_FLUSH_MS: 1400,
+        MIN_SEND_GAP_MS: 350,
+        STT_PAUSE_MS: 800
       }
     };
 
@@ -451,6 +454,7 @@
         this.MICRO_MIN_CHARS = preset.MICRO_MIN_CHARS;
         this.MICRO_FLUSH_MS = preset.MICRO_FLUSH_MS;
         this.MIN_SEND_GAP_MS = preset.MIN_SEND_GAP_MS;
+        this.STT_PAUSE_MS = preset.STT_PAUSE_MS;
         console.log(`[Guide] Applied preset: ${preset.name}`, preset);
       }
 
@@ -577,7 +581,7 @@
           if (this.sttPauseInterval) clearInterval(this.sttPauseInterval);
           this.sttPauseInterval = setInterval(() => {
             const silenceMs = Date.now() - this.lastSttActivityTime;
-            if (silenceMs > 450 && this.microBuffer.trim().length > 0 && this.currentPreset === 'simultaneous') {
+            if (silenceMs > this.STT_PAUSE_MS && this.microBuffer.trim().length > 0) {
               this.flushMicroBuffer('stt_pause');
             }
           }, 100);
@@ -591,20 +595,30 @@
       }
 
       async stop() {
+        console.log('[Guide] Stopping session...');
+
+        // First: stop all timers and intervals
+        if (this.microFlushTimer) { clearTimeout(this.microFlushTimer); this.microFlushTimer = null; }
+        if (this.speechStoppedTimer) { clearTimeout(this.speechStoppedTimer); this.speechStoppedTimer = null; }
+        if (this.sttPauseInterval) { clearInterval(this.sttPauseInterval); this.sttPauseInterval = null; }
+        if (this.muteInterval) { clearInterval(this.muteInterval); this.muteInterval = null; }
+        this.microBuffer = '';
+
+        // Disconnect session with timeout (some devices can hang on disconnect)
         if (this.session) {
-          await this.session.disconnect();
+          try {
+            await Promise.race([
+              this.session.disconnect(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+            ]);
+          } catch (err) {
+            console.warn('[Guide] Disconnect failed or timed out:', err.message);
+          }
           this.session = null;
           this.agent = null;
         }
 
-        // Clean up micro-chunking
-        if (this.microFlushTimer) clearTimeout(this.microFlushTimer);
-        this.microFlushTimer = null;
-        if (this.speechStoppedTimer) clearTimeout(this.speechStoppedTimer);
-        this.speechStoppedTimer = null;
-        this.microBuffer = '';
-
-        // Stop microphone stream explicitly (E: prevents "still hearing" after stop)
+        // Always stop mic stream (even if disconnect failed)
         if (this.micStream) {
           this.micStream.getTracks().forEach(t => {
             t.stop();
@@ -612,10 +626,6 @@
           });
           this.micStream = null;
         }
-
-        // Clean up intervals
-        if (this.sttPauseInterval) { clearInterval(this.sttPauseInterval); this.sttPauseInterval = null; }
-        if (this.muteInterval) { clearInterval(this.muteInterval); this.muteInterval = null; }
 
         // Release wake lock
         await this.releaseWakeLock();
@@ -628,6 +638,7 @@
         this.sequenceNumber = 0;
         this.updateStatus('inactive', 'Terminato');
         this.transcriptLog.innerHTML = '';
+        console.log('[Guide] Session stopped');
       }
 
       setupEventHandlers() {
@@ -779,19 +790,45 @@
         if (!this.micStream) return;
         try {
           const pc = this.session?.transport?.pc || this.session?.pc || this.session?._pc;
-          if (pc) {
-            const newTrack = this.micStream.getAudioTracks()[0];
-            const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
-            if (sender) {
-              await sender.replaceTrack(newTrack);
-              console.log('[Guide] Mic applied via replaceTrack:', newTrack.label);
-              return;
+
+          if (!pc) {
+            console.error('[Guide] replaceTrack: PeerConnection non trovato');
+            if (!this._micRetry) {
+              this.updateStatus('connecting', '🔄 Riavvio per microfono esterno...');
+              setTimeout(() => this._reconnectForMic(), 800);
             }
+            return;
           }
-          // replaceTrack not possible (no PC or no sender)
-          if (!this._micRetry) {
-            console.warn('[Guide] replaceTrack failed (no PC/sender), scheduling reconnect...');
-            this.updateStatus('connecting', '🔄 Riavvio per microfono esterno...');
+
+          const newTrack = this.micStream.getAudioTracks()[0];
+          const senders = pc.getSenders();
+          const sender = senders.find(s => s.track?.kind === 'audio');
+
+          // Diagnostic log BEFORE
+          console.log('[Guide] === BEFORE replaceTrack ===');
+          console.log('[Guide] All senders:', senders.map(s => ({ kind: s.track?.kind, label: s.track?.label, id: s.track?.id?.substring(0, 8) })));
+          console.log('[Guide] Audio sender found:', sender?.track?.label ?? 'none');
+          console.log('[Guide] New track to apply:', newTrack?.label ?? 'none');
+
+          if (!sender) {
+            console.error('[Guide] replaceTrack: nessun audio sender nel PC');
+            if (!this._micRetry) {
+              this.updateStatus('connecting', '🔄 Riavvio per microfono esterno...');
+              setTimeout(() => this._reconnectForMic(), 800);
+            }
+            return;
+          }
+
+          await sender.replaceTrack(newTrack);
+
+          // Diagnostic log AFTER
+          const success = sender.track?.label === newTrack.label;
+          console.log('[Guide] === AFTER replaceTrack ===');
+          console.log('[Guide] Audio sender now:', sender.track?.label);
+          console.log('[Guide] Track replaced successfully:', success);
+
+          if (!success && !this._micRetry) {
+            console.warn('[Guide] replaceTrack label mismatch, scheduling reconnect...');
             setTimeout(() => this._reconnectForMic(), 800);
           }
         } catch (e) {
@@ -893,12 +930,28 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(chunk)
             });
-            const result = await response.json();
+
+            // Check HTTP status before parsing JSON
+            if (!response.ok) {
+              const text = await response.text();
+              console.warn(`[Guide] Server error ${response.status}:`, text.substring(0, 100));
+              throw new Error(`HTTP ${response.status}`);
+            }
+
+            // Parse JSON with fallback for non-JSON responses (e.g. gateway HTML errors)
+            let result;
+            try {
+              result = await response.json();
+            } catch (jsonErr) {
+              console.warn('[Guide] Risposta non-JSON dal server, assumo ok');
+              result = { ok: true };
+            }
+
             if (result.ok) return result;
             console.warn('[Guide] Chunk not accepted:', result);
             return null;
           } catch (err) {
-            console.warn(`[Guide] Retry ${i + 1}/${maxRetries} dopo ${delay}ms`);
+            console.warn(`[Guide] Retry ${i + 1}/${maxRetries} dopo ${delay}ms:`, err.message);
             if (i < maxRetries - 1) {
               await new Promise(r => setTimeout(r, delay));
               delay *= 2;

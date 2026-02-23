@@ -289,6 +289,7 @@
     let backlogInterval = null;
     let lastChunkTime = Date.now();
     let noChunkInterval = null;
+    let pendingTimer = null;
 
     // Wake Lock helpers
     async function requestWakeLock() {
@@ -365,43 +366,52 @@
     function processChunk(data) {
       const { text, seq } = data;
 
-      // Scarta chunk già processati (duplicati)
       if (seq <= lastProcessedSeq) {
         console.log('[Visitor] Chunk duplicato scartato:', seq);
         return;
       }
 
-      // Se è il prossimo in sequenza, processalo subito
       if (seq === lastProcessedSeq + 1) {
         enqueueAndSpeak(text, currentLang);
         lastProcessedSeq = seq;
-
-        // Processa eventuali chunk pendenti consecutivi
-        while (pendingChunks.has(lastProcessedSeq + 1)) {
-          const next = pendingChunks.get(lastProcessedSeq + 1);
-          pendingChunks.delete(lastProcessedSeq + 1);
-          enqueueAndSpeak(next.text, currentLang);
-          lastProcessedSeq++;
-        }
+        processPendingInOrder();
       } else {
-        // Chunk fuori ordine: metti in attesa
-        pendingChunks.set(seq, { text });
+        pendingChunks.set(seq, { text, receivedAt: Date.now() });
         console.log(`[Visitor] Chunk #${seq} fuori ordine, in attesa (ultimo: ${lastProcessedSeq})`);
+        scheduleProcessPending();
+      }
+    }
 
-        // Timeout: dopo 200ms processa comunque
-        setTimeout(() => {
-          if (pendingChunks.has(seq)) {
-            console.log('[Visitor] Timeout chunk pendente, processo tutti');
-            const sorted = [...pendingChunks.keys()].sort((a, b) => a - b);
-            for (const s of sorted) {
-              if (s > lastProcessedSeq) {
-                enqueueAndSpeak(pendingChunks.get(s).text, currentLang);
-                lastProcessedSeq = s;
-              }
-              pendingChunks.delete(s);
-            }
+    function scheduleProcessPending() {
+      if (pendingTimer) return; // già schedulato
+      pendingTimer = setTimeout(() => {
+        pendingTimer = null;
+        const nextExpected = lastProcessedSeq + 1;
+        if (pendingChunks.has(nextExpected)) {
+          const chunk = pendingChunks.get(nextExpected);
+          pendingChunks.delete(nextExpected);
+          enqueueAndSpeak(chunk.text, currentLang);
+          lastProcessedSeq = nextExpected;
+          // Rischedula per il successivo
+          if (pendingChunks.size > 0) scheduleProcessPending();
+        } else if (pendingChunks.size > 0) {
+          // Il seq atteso non è arrivato: salta ai pending disponibili
+          const oldest = Math.min(...pendingChunks.keys());
+          if (oldest > nextExpected) {
+            console.warn('[Visitor] Chunk persi, salto a seq:', oldest - 1);
+            lastProcessedSeq = oldest - 1;
+            scheduleProcessPending();
           }
-        }, 200);
+        }
+      }, 280);
+    }
+
+    function processPendingInOrder() {
+      while (pendingChunks.has(lastProcessedSeq + 1)) {
+        const chunk = pendingChunks.get(lastProcessedSeq + 1);
+        pendingChunks.delete(lastProcessedSeq + 1);
+        enqueueAndSpeak(chunk.text, currentLang);
+        lastProcessedSeq++;
       }
     }
 
@@ -632,6 +642,7 @@
       if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
       if (backlogInterval) { clearInterval(backlogInterval); backlogInterval = null; }
       if (noChunkInterval) { clearInterval(noChunkInterval); noChunkInterval = null; }
+      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
       hideNoChunkWarning();
       lastProcessedSeq = -1;
       pendingChunks.clear();
