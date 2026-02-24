@@ -309,7 +309,7 @@
         <label>⚡ Stile traduzione:</label>
         <div class="preset-selector">
           <label class="preset-option">
-            <input type="radio" name="preset" value="simultaneous">
+            <input type="radio" name="preset" value="simultaneous" checked>
             <span class="preset-label">🟢 Simultaneo</span>
             <span class="preset-desc">Rapido</span>
           </label>
@@ -319,7 +319,7 @@
             <span class="preset-desc">Compromesso</span>
           </label>
           <label class="preset-option">
-            <input type="radio" name="preset" value="natural" checked>
+            <input type="radio" name="preset" value="natural">
             <span class="preset-label">🔵 Naturale</span>
             <span class="preset-desc">Frasi complete</span>
           </label>
@@ -415,7 +415,7 @@
         this.microFlushTimer = null;    // for scheduleMicroFlush
         this.speechStoppedTimer = null; // for speech_stopped delayed flush
         this.muteInterval = null;
-        this.currentPreset = 'natural';
+        this.currentPreset = 'simultaneous';
         this.applyPreset(this.currentPreset);
 
         // Dedup state (avoid STT repeating same phrase)
