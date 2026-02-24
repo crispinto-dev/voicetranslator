@@ -441,8 +441,6 @@
 
         // Mic stream reference for explicit cleanup on stop (E)
         this.micStream = null;
-        // Guard against infinite reconnect loop (A)
-        this._micRetry = false;
 
         this.initializeUI();
       }
@@ -564,9 +562,8 @@
           this.muteAllAudio();
           this.muteInterval = setInterval(() => this.muteAllAudio(), 500);
 
-          // Apply pre-acquired mic to WebRTC, with reconnect fallback if replaceTrack fails
+          // Apply pre-acquired mic to WebRTC (best-effort, non-blocking)
           await this.applyMicToWebRTC();
-          this._micRetry = false;
 
           this.updateStatus('active', '✅ Attivo - Parla nel microfono');
           this.setupForm.classList.add('hidden');
@@ -607,10 +604,15 @@
         // Disconnect session with timeout (some devices can hang on disconnect)
         if (this.session) {
           try {
-            await Promise.race([
-              this.session.disconnect(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-            ]);
+            const disconnectFn = (this.session.disconnect || this.session.close)?.bind(this.session);
+            if (disconnectFn) {
+              await Promise.race([
+                disconnectFn(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+              ]);
+            } else {
+              console.warn('[Guide] Nessun metodo disconnect/close sulla sessione');
+            }
           } catch (err) {
             console.warn('[Guide] Disconnect failed or timed out:', err.message);
           }
@@ -792,11 +794,9 @@
           const pc = this.session?.transport?.pc || this.session?.pc || this.session?._pc;
 
           if (!pc) {
-            console.error('[Guide] replaceTrack: PeerConnection non trovato');
-            if (!this._micRetry) {
-              this.updateStatus('connecting', '🔄 Riavvio per microfono esterno...');
-              setTimeout(() => this._reconnectForMic(), 800);
-            }
+            // PC not accessible on this device/browser — anti-noise constraints still apply
+            // via the pre-acquired micStream; no reconnect to avoid UI flicker loop
+            console.warn('[Guide] replaceTrack: PeerConnection non accessibile, uso mic pre-acquisito');
             return;
           }
 
@@ -811,11 +811,7 @@
           console.log('[Guide] New track to apply:', newTrack?.label ?? 'none');
 
           if (!sender) {
-            console.error('[Guide] replaceTrack: nessun audio sender nel PC');
-            if (!this._micRetry) {
-              this.updateStatus('connecting', '🔄 Riavvio per microfono esterno...');
-              setTimeout(() => this._reconnectForMic(), 800);
-            }
+            console.warn('[Guide] replaceTrack: nessun audio sender nel PC');
             return;
           }
 
@@ -826,24 +822,9 @@
           console.log('[Guide] === AFTER replaceTrack ===');
           console.log('[Guide] Audio sender now:', sender.track?.label);
           console.log('[Guide] Track replaced successfully:', success);
-
-          if (!success && !this._micRetry) {
-            console.warn('[Guide] replaceTrack label mismatch, scheduling reconnect...');
-            setTimeout(() => this._reconnectForMic(), 800);
-          }
         } catch (e) {
-          console.warn('[Guide] replaceTrack error:', e);
-          if (!this._micRetry) {
-            setTimeout(() => this._reconnectForMic(), 800);
-          }
+          console.warn('[Guide] replaceTrack error (non bloccante):', e);
         }
-      }
-
-      async _reconnectForMic() {
-        await this.stop();
-        await new Promise(r => setTimeout(r, 500));
-        this._micRetry = true;
-        await this.start();
       }
 
       async sendSourceText(sourceText) {
