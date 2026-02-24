@@ -371,7 +371,7 @@
   </div>
 
   <script type="module">
-    import { RealtimeAgent, RealtimeSession } from '@openai/agents-realtime';
+    import { RealtimeAgent, RealtimeSession, OpenAIRealtimeWebRTC } from '@openai/agents-realtime';
 
     // Translation style presets
     const PRESETS = {
@@ -535,10 +535,18 @@
             instructions: 'You are a speech-to-text transcriber. Just listen.'
           });
 
+          // Create WebRTC transport using our pre-acquired mic stream.
+          // This prevents the SDK from calling getUserMedia() again internally,
+          // which on mobile can conflict and destabilise the WebRTC connection.
+          const transport = new OpenAIRealtimeWebRTC({
+            mediaStream: this.micStream || undefined
+          });
+
           // Create session for STT only - NO response generation
           const sessionConfig = {
             model: 'gpt-4o-realtime-preview-2024-12-17',
             inputAudioTranscription: { model: 'whisper-1' },
+            transport,
             config: {
               turnDetection: {
                 type: 'server_vad',
@@ -554,6 +562,16 @@
           this.session = new RealtimeSession(this.agent, sessionConfig);
           this.setupEventHandlers();
 
+          // Detect unexpected WebRTC drops (ICE failure, network change, etc.)
+          // and clean up so the guide knows to restart rather than staying stuck.
+          transport.on('connection_change', (status) => {
+            console.log('[Guide] WebRTC connection_change:', status);
+            if ((status === 'disconnected' || status === 'failed') && this.isRunning) {
+              console.warn('[Guide] Connessione WebRTC persa inaspettatamente');
+              this.stop();
+            }
+          });
+
           // Connect
           await this.session.connect({ apiKey: token });
           console.log('[Guide] Connected to OpenAI Realtime API (STT mode)');
@@ -561,9 +579,6 @@
           // Mute any audio elements (shouldn't be any, but just in case)
           this.muteAllAudio();
           this.muteInterval = setInterval(() => this.muteAllAudio(), 500);
-
-          // Apply pre-acquired mic to WebRTC (best-effort, non-blocking)
-          await this.applyMicToWebRTC();
 
           this.updateStatus('active', '✅ Attivo - Parla nel microfono');
           this.setupForm.classList.add('hidden');
@@ -592,6 +607,8 @@
       }
 
       async stop() {
+        if (!this.isRunning) return; // prevent double-call (e.g. from connection_change handler)
+        this.isRunning = false;      // set immediately so re-entry is blocked
         console.log('[Guide] Stopping session...');
 
         // First: stop all timers and intervals
@@ -635,7 +652,6 @@
         this.setupForm.classList.remove('hidden');
         this.activeSession.classList.add('hidden');
         this.startBtn.disabled = false;
-        this.isRunning = false;
         this.chunksSent = 0;
         this.sequenceNumber = 0;
         this.updateStatus('inactive', 'Terminato');
@@ -784,49 +800,6 @@
         }
 
         console.log(`[Guide] Micro flush (${reason}): ${chunks.length} chunk(s)`);
-      }
-
-      // ==========================================
-      // MICROPHONE → WEBRTC (A)
-      // ==========================================
-
-      async applyMicToWebRTC() {
-        if (!this.micStream) return;
-        try {
-          const pc = this.session?.transport?.pc || this.session?.pc || this.session?._pc;
-
-          if (!pc) {
-            // PC not accessible on this device/browser — anti-noise constraints still apply
-            // via the pre-acquired micStream; no reconnect to avoid UI flicker loop
-            console.warn('[Guide] replaceTrack: PeerConnection non accessibile, uso mic pre-acquisito');
-            return;
-          }
-
-          const newTrack = this.micStream.getAudioTracks()[0];
-          const senders = pc.getSenders();
-          const sender = senders.find(s => s.track?.kind === 'audio');
-
-          // Diagnostic log BEFORE
-          console.log('[Guide] === BEFORE replaceTrack ===');
-          console.log('[Guide] All senders:', senders.map(s => ({ kind: s.track?.kind, label: s.track?.label, id: s.track?.id?.substring(0, 8) })));
-          console.log('[Guide] Audio sender found:', sender?.track?.label ?? 'none');
-          console.log('[Guide] New track to apply:', newTrack?.label ?? 'none');
-
-          if (!sender) {
-            console.warn('[Guide] replaceTrack: nessun audio sender nel PC');
-            return;
-          }
-
-          await sender.replaceTrack(newTrack);
-
-          // Diagnostic log AFTER
-          const success = sender.track?.label === newTrack.label;
-          console.log('[Guide] === AFTER replaceTrack ===');
-          console.log('[Guide] Audio sender now:', sender.track?.label);
-          console.log('[Guide] Track replaced successfully:', success);
-        } catch (e) {
-          console.warn('[Guide] replaceTrack error (non bloccante):', e);
-        }
       }
 
       async sendSourceText(sourceText) {
