@@ -28,7 +28,7 @@ console.log(`Serving static files from: ${staticDir}`);
 app.use(express.static(staticDir));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
@@ -40,29 +40,18 @@ app.post('/api/realtime/token', async (req, res) => {
     console.log(`Generating ephemeral token for language: ${language}, mode: ${mode}`);
 
     const languageNames = {
-      'en': 'English',
-      'es': 'Spanish',
-      'fr': 'French',
-      'de': 'German',
-      'it': 'Italian',
-      'pt': 'Portuguese',
-      'zh': 'Chinese',
-      'ja': 'Japanese',
-      'ko': 'Korean',
-      'ar': 'Arabic',
-      'ru': 'Russian'
+      'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+      'it': 'Italian', 'pt': 'Portuguese', 'zh': 'Chinese', 'ja': 'Japanese',
+      'ko': 'Korean', 'ar': 'Arabic', 'ru': 'Russian'
     };
 
     const targetLanguageName = languageNames[language] || 'English';
 
-    // Different instructions based on mode
     let instructions;
 
     if (mode === 'stt-only') {
-      // STT-only mode: just transcribe, no translation (translation happens server-side)
       instructions = `You are a speech-to-text transcriber. Just listen and transcribe.`;
     } else if (mode === 'museum') {
-      // Museum Guide Mode: TEXT-ONLY output for dual device streaming
       instructions = `You are a professional simultaneous interpreter for museum/tour guides, translating into ${targetLanguageName}.
 
 DUAL DEVICE TEXT-ONLY MODE:
@@ -93,7 +82,6 @@ QUALITY FOR TTS:
 
 You are providing professional-quality text translation for museum tour interpretation.`;
     } else {
-      // Normal/Half-Duplex Mode: Traditional conversation-style translation
       instructions = `You are a professional real-time translator, translating into ${targetLanguageName}.
 
 HALF-DUPLEX MODE:
@@ -125,8 +113,6 @@ QUALITY:
 You are a professional real-time translator for personal conversations and interactions.`;
     }
 
-    // Use client_secrets endpoint for WebRTC connections
-    // Disable turn_detection for simultaneous translation
     const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
@@ -134,15 +120,11 @@ You are a professional real-time translator for personal conversations and inter
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        expires_after: {
-          anchor: 'created_at',
-          seconds: 600
-        },
+        expires_after: { anchor: 'created_at', seconds: 600 },
         session: {
           type: 'realtime',
-          model: 'gpt-4o-realtime-preview-2024-12-17',  // Match client session model
+          model: 'gpt-4o-realtime-preview-2024-12-17',
           instructions: instructions
-          // Note: turn_detection must be disabled via session.update after connection
         }
       })
     });
@@ -154,45 +136,24 @@ You are a professional real-time translator for personal conversations and inter
     }
 
     const data = await response.json();
-
     console.log('Ephemeral token generated successfully');
-
-    // client_secrets endpoint returns { value, expires_at, session }
-    res.json({
-      token: data.value,
-      expiresAt: data.expires_at,
-      instructions: instructions
-    });
+    res.json({ token: data.value, expiresAt: data.expires_at, instructions });
 
   } catch (error) {
     console.error('Error generating token:', error);
-    res.status(500).json({
-      error: 'Failed to generate token',
-      message: error.message
-    });
+    res.status(500).json({ error: 'Failed to generate token', message: error.message });
   }
 });
 
 // Endpoint to update session instructions (for language change)
 app.post('/api/realtime/instructions', (req, res) => {
   const { language } = req.body;
-
   const languageNames = {
-    'en': 'English',
-    'es': 'Spanish',
-    'fr': 'French',
-    'de': 'German',
-    'it': 'Italian',
-    'pt': 'Portuguese',
-    'zh': 'Chinese',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'ar': 'Arabic',
-    'ru': 'Russian'
+    'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+    'it': 'Italian', 'pt': 'Portuguese', 'zh': 'Chinese', 'ja': 'Japanese',
+    'ko': 'Korean', 'ar': 'Arabic', 'ru': 'Russian'
   };
-
   const targetLanguageName = languageNames[language] || 'English';
-
   const instructions = `You are a real-time simultaneous translator. Your ONLY job is to translate everything you hear into ${targetLanguageName}.
 
 CRITICAL RULES:
@@ -204,7 +165,6 @@ CRITICAL RULES:
 6. Translate everything literally and accurately
 
 You are a transparent translation layer - the user should feel like they're hearing the original speaker in ${targetLanguageName}.`;
-
   res.json({ instructions });
 });
 
@@ -213,17 +173,9 @@ You are a transparent translation layer - the user should feel like they're hear
 // ==========================================
 
 const languageNames = {
-  'en': 'English',
-  'es': 'Spanish',
-  'fr': 'French',
-  'de': 'German',
-  'it': 'Italian',
-  'pt': 'Portuguese',
-  'zh': 'Chinese',
-  'ja': 'Japanese',
-  'ko': 'Korean',
-  'ar': 'Arabic',
-  'ru': 'Russian'
+  'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+  'it': 'Italian', 'pt': 'Portuguese', 'zh': 'Chinese', 'ja': 'Japanese',
+  'ko': 'Korean', 'ar': 'Arabic', 'ru': 'Russian'
 };
 
 async function translateText({ sourceText, targetLang }) {
@@ -236,7 +188,7 @@ async function translateText({ sourceText, targetLang }) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',  // Fast and cheap for translation
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
@@ -258,22 +210,25 @@ Keep it natural and suitable for text-to-speech.`
   }
 
   const data = await response.json();
-  const translated = data.choices?.[0]?.message?.content?.trim() || '';
-  return translated;
+  return data.choices?.[0]?.message?.content?.trim() || '';
 }
 
 // ==========================================
-// SSE ENDPOINTS FOR DUAL DEVICE MODE
+// SSE MULTI-CLIENT STATE
 // ==========================================
 
-let currentClient = null;
+// Map<clientId, { res, lang, connectedAt }>
+const sseClients = new Map();
 let globalEventId = 0;
+let clientCounter = 0;
+let totalChunksTranslated = 0;
+const serverStartTime = Date.now();
 
 function sseHeaders(res) {
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
 }
 
 function sseSend(res, { id, event, data }) {
@@ -282,34 +237,104 @@ function sseSend(res, { id, event, data }) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-// Ricevitore: SSE (un solo client)
-app.get("/sse", (req, res) => {
-  const lang = (req.query.lang || "en").toString().toLowerCase();
-  console.log(`[SSE] Receiver connected with language: ${lang}`);
+// Broadcast to all SSE clients listening for a given language.
+// Returns the number of clients successfully reached.
+function broadcastToLang(lang, payload) {
+  let sent = 0;
+  for (const [id, client] of sseClients) {
+    if (client.lang !== lang) continue;
+    try {
+      sseSend(client.res, payload);
+      sent++;
+    } catch (e) {
+      console.error(`[SSE] Send error to client #${id}:`, e.message);
+      sseClients.delete(id);
+    }
+  }
+  return sent;
+}
+
+// SSE endpoint — supports any number of concurrent receivers per language
+app.get('/sse', (req, res) => {
+  const lang = (req.query.lang || 'en').toString().toLowerCase();
+  const clientId = ++clientCounter;
+
+  console.log(`[SSE] Client #${clientId} connected (${lang}), total: ${sseClients.size + 1}`);
 
   sseHeaders(res);
-  currentClient = { res, lang };
-  sseSend(res, { id: ++globalEventId, event: "hello", data: { lang } });
+  sseClients.set(clientId, { res, lang, connectedAt: Date.now() });
+  sseSend(res, { id: ++globalEventId, event: 'hello', data: { lang, clientId } });
+
+  // Also push current visitor settings so a late-joining client gets the right TTS rate
+  const settings = visitorSettings.get(lang);
+  if (settings) {
+    sseSend(res, { event: 'settings', data: settings });
+  }
 
   const hb = setInterval(() => {
     try {
-      sseSend(res, { event: "ping", data: { t: Date.now() } });
+      sseSend(res, { event: 'ping', data: { t: Date.now() } });
     } catch (e) {
-      console.error('[SSE] Heartbeat error:', e);
+      console.error(`[SSE] Heartbeat error for client #${clientId}:`, e.message);
+      clearInterval(hb);
+      sseClients.delete(clientId);
     }
   }, 15000);
 
-  req.on("close", () => {
-    console.log('[SSE] Receiver disconnected');
+  req.on('close', () => {
+    console.log(`[SSE] Client #${clientId} disconnected, remaining: ${sseClients.size - 1}`);
     clearInterval(hb);
-    currentClient = null;
+    sseClients.delete(clientId);
   });
 });
 
-// Preset suggestions from visitor (P3: auto-preset on backlog)
+// Status endpoint — useful for monitoring and debugging
+app.get('/status', (_req, res) => {
+  const byLang = {};
+  for (const { lang } of sseClients.values()) {
+    byLang[lang] = (byLang[lang] || 0) + 1;
+  }
+  res.json({
+    clients: sseClients.size,
+    byLang,
+    uptime: Math.floor((Date.now() - serverStartTime) / 1000),
+    totalChunksTranslated,
+    pendingLangs: [...pendingByLang.keys()]
+  });
+});
+
+// ==========================================
+// VISITOR SETTINGS (TTS rate, etc.)
+// ==========================================
+
+// Stores the latest settings per language, so late-joining clients receive them.
+const visitorSettings = new Map();  // lang → { ttsRate, ... }
+
+app.post('/visitor-settings', (req, res) => {
+  const { lang, ttsRate } = req.body || {};
+  if (!lang) return res.status(400).json({ ok: false, error: 'Missing lang' });
+
+  const lk = lang.toLowerCase();
+  const rate = Math.min(2.0, Math.max(0.5, parseFloat(ttsRate) || 1.0));
+  visitorSettings.set(lk, { ttsRate: rate });
+
+  const sent = broadcastToLang(lk, {
+    id: ++globalEventId,
+    event: 'settings',
+    data: { ttsRate: rate }
+  });
+
+  console.log(`[Settings] TTS rate ${rate} broadcast to ${sent} client(s) (${lk})`);
+  res.json({ ok: true, sent });
+});
+
+// ==========================================
+// PRESET SUGGESTIONS (from visitor auto-preset)
+// ==========================================
+
 let suggestedPresets = {};  // { lang: presetName }
 
-app.post("/preset-suggest", (req, res) => {
+app.post('/preset-suggest', (req, res) => {
   const { lang, preset } = req.body || {};
   if (lang && preset) {
     suggestedPresets[lang] = preset;
@@ -318,75 +343,93 @@ app.post("/preset-suggest", (req, res) => {
   res.json({ ok: true });
 });
 
-// Per-language debounce state for translation batching (reduces API calls, improves coherence)
-const pendingByLang = new Map();   // lang → { texts[], ts, seq }
-const timerByLang   = new Map();   // lang → timeoutId
-const DEBOUNCE_MS = 250;
+// ==========================================
+// SMART DEBOUNCE + TRANSLATION PIPELINE
+// ==========================================
 
-// Ingest: riceve chunk dalla guida, accumula con debounce, poi traduce
-app.post("/ingest", (req, res) => {
+// Per-language state
+const pendingByLang = new Map();   // lang → { texts[], ts, seq, maxTimer }
+const timerByLang   = new Map();   // lang → debounce timeoutId
+
+// 50ms window just to coalesce bursts from network jitter.
+// The guide already does micro-chunking, so a large debounce is redundant.
+const DEBOUNCE_MS  = 50;
+// Absolute safety valve: if a batch hasn't been flushed in 3s, force it.
+const MAX_WAIT_MS  = 3000;
+
+async function flushLang(lk) {
+  // Cancel the debounce timer if it fired us (no-op if called by maxTimer)
+  const deb = timerByLang.get(lk);
+  if (deb) { clearTimeout(deb); timerByLang.delete(lk); }
+
+  const batch = pendingByLang.get(lk);
+  if (!batch) return;
+  pendingByLang.delete(lk);
+  clearTimeout(batch.maxTimer);
+
+  const combinedText = batch.texts.join(' ');
+  console.log(`[Ingest] Translating ${batch.texts.length} chunk(s) → ${lk}: "${combinedText.substring(0, 80)}"`);
+
+  try {
+    const translated = await translateText({ sourceText: combinedText, targetLang: lk });
+    console.log(`[Ingest] → "${translated.substring(0, 80)}"`);
+    totalChunksTranslated++;
+
+    const sent = broadcastToLang(lk, {
+      id: ++globalEventId,
+      event: 'chunk',
+      data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq }
+    });
+    console.log(`[Ingest] Broadcast to ${sent} client(s) (${lk})`);
+  } catch (e) {
+    console.error('[Ingest] Translation error:', e.message);
+  }
+}
+
+// Ingest: receives source text chunks from the guide device
+app.post('/ingest', (req, res) => {
   const { sourceText, ts, seq, lang } = req.body || {};
 
   if (!sourceText || !lang) {
     return res.status(400).json({ ok: false, error: 'Missing sourceText or lang' });
   }
 
-  console.log(`[Ingest] Received source (IT) seq:${seq} -> ${lang}: "${sourceText.substring(0, 60)}..."`);
+  const lk = lang.toLowerCase();
+  const receiverCount = [...sseClients.values()].filter(c => c.lang === lk).length;
+  const hasReceiver   = receiverCount > 0;
 
-  const receiverOk = currentClient && currentClient.lang === lang.toLowerCase();
+  console.log(`[Ingest] seq:${seq} → ${lk} (${receiverCount} receiver(s)): "${sourceText.substring(0, 60)}"`);
 
-  // Respond immediately to guide (don't block on translation)
+  // Respond immediately so the guide isn't blocked on our translation latency
   res.json({
     ok: true,
-    hasReceiver: receiverOk,
-    receiverLang: currentClient?.lang ?? null,
-    accepted: receiverOk,
+    hasReceiver,
+    clientCount: receiverCount,
+    accepted: hasReceiver,
     suggestedPreset: suggestedPresets[lang] || null
   });
 
-  // If no receiver, don't accumulate or translate
-  if (!receiverOk) return;
+  if (!hasReceiver) return;
 
-  const lk = lang.toLowerCase();
-
-  // Accumulate text for this language's debounce bucket
-  const pending = pendingByLang.get(lk);
-  if (!pending) {
-    pendingByLang.set(lk, { lang: lk, texts: [sourceText], ts, seq });
+  // Accumulate into this language's batch
+  const existing = pendingByLang.get(lk);
+  if (!existing) {
+    // New batch: arm the absolute max-wait safety timer
+    const maxTimer = setTimeout(() => {
+      console.warn(`[Ingest] Force-flush after ${MAX_WAIT_MS}ms for ${lk}`);
+      flushLang(lk);
+    }, MAX_WAIT_MS);
+    pendingByLang.set(lk, { texts: [sourceText], ts, seq, maxTimer });
   } else {
-    pending.texts.push(sourceText);
-    pending.seq = seq;
-    pending.ts = ts;
+    existing.texts.push(sourceText);
+    existing.seq = seq;
+    if (!existing.ts) existing.ts = ts;
   }
 
-  // Reset this language's debounce timer
-  const oldTimer = timerByLang.get(lk);
-  if (oldTimer) clearTimeout(oldTimer);
-
-  timerByLang.set(lk, setTimeout(async () => {
-    timerByLang.delete(lk);
-    const batch = pendingByLang.get(lk);
-    pendingByLang.delete(lk);
-    if (!batch) return;
-
-    const combinedText = batch.texts.join(' ');
-    try {
-      console.log(`[Ingest] Translating batch (${batch.texts.length} chunk(s)) to ${batch.lang}...`);
-      const translated = await translateText({ sourceText: combinedText, targetLang: batch.lang });
-      console.log(`[Ingest] Translation: "${translated.substring(0, 60)}..."`);
-
-      if (currentClient && currentClient.lang === batch.lang) {
-        sseSend(currentClient.res, {
-          id: ++globalEventId,
-          event: "chunk",
-          data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq }
-        });
-        console.log(`[Ingest] Sent batched translation to receiver (${batch.lang})`);
-      }
-    } catch (e) {
-      console.error('[Ingest] Batch translation error:', e);
-    }
-  }, DEBOUNCE_MS));
+  // (Re)start the short debounce timer
+  const old = timerByLang.get(lk);
+  if (old) clearTimeout(old);
+  timerByLang.set(lk, setTimeout(() => flushLang(lk), DEBOUNCE_MS));
 });
 
 server.listen(PORT, () => {

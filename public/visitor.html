@@ -130,14 +130,104 @@
       font-weight: 500;
     }
 
-    .status.inactive { background: #f3f4f6; color: #6b7280; }
-    .status.connecting { background: #fef3c7; color: #92400e; }
+    .status.inactive  { background: #f3f4f6; color: #6b7280; }
+    .status.connecting{ background: #fef3c7; color: #92400e; }
     .status.connected { background: #d1fae5; color: #065f46; }
-    .status.speaking { background: #dbeafe; color: #1e40af; }
+    .status.speaking  { background: #dbeafe; color: #1e40af; }
 
+    /* ---- Params panel ---- */
+    .params-panel {
+      margin-top: 16px;
+      border: 1px solid #d1fae5;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .params-toggle {
+      width: 100%;
+      background: #f0fdf4;
+      border: none;
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      color: #065f46;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .params-toggle::after { content: '▼'; transition: transform 0.2s; font-size: 11px; }
+    .params-toggle.open::after { transform: rotate(180deg); }
+
+    .params-body {
+      display: none;
+      padding: 12px 14px;
+      background: white;
+    }
+
+    .params-body.open { display: block; }
+
+    .param-row {
+      display: grid;
+      grid-template-columns: 1fr 110px 42px;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .param-row:last-child { margin-bottom: 0; }
+
+    .param-label { font-size: 12px; color: #374151; }
+
+    .param-slider {
+      -webkit-appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: #d1fae5;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .param-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #10b981;
+      cursor: pointer;
+    }
+
+    .param-value {
+      font-size: 12px;
+      font-weight: 600;
+      color: #10b981;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    /* ---- Subtitle box ---- */
+    .subtitle-box {
+      display: none;
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      border-radius: 8px;
+      font-size: 15px;
+      color: #1e3a8a;
+      line-height: 1.5;
+      min-height: 48px;
+      font-style: italic;
+    }
+
+    .subtitle-box.active { display: block; }
+
+    /* ---- Stats ---- */
     .stats {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 10px;
       margin-top: 20px;
     }
@@ -162,6 +252,9 @@
       color: #10b981;
     }
 
+    .stat-value.latency { font-size: 15px; }
+
+    /* ---- Transcript ---- */
     .transcript {
       margin-top: 20px;
       padding: 15px;
@@ -244,6 +337,26 @@
     <div class="status inactive" id="status">Pronto</div>
     <div class="wake-lock-badge" id="wakeLockBadge" style="display:none">🔒 Schermo attivo</div>
 
+    <!-- TTS parameters panel -->
+    <div class="params-panel">
+      <button class="params-toggle" id="paramsToggle">⚙️ Parametri TTS</button>
+      <div class="params-body" id="paramsBody">
+        <div class="param-row">
+          <span class="param-label">Velocità (rate)</span>
+          <input type="range" class="param-slider" id="slTtsRate" min="0.5" max="2.0" step="0.1" value="1.0">
+          <span class="param-value" id="valTtsRate">1.0x</span>
+        </div>
+        <div class="param-row">
+          <span class="param-label">Tono (pitch)</span>
+          <input type="range" class="param-slider" id="slTtsPitch" min="0.5" max="2.0" step="0.1" value="1.0">
+          <span class="param-value" id="valTtsPitch">1.0x</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Real-time subtitle of the currently speaking utterance -->
+    <div class="subtitle-box" id="subtitleBox"></div>
+
     <div class="stats">
       <div class="stat-box">
         <div class="stat-label">Chunk Ricevuti</div>
@@ -252,6 +365,10 @@
       <div class="stat-box">
         <div class="stat-label">In Coda</div>
         <div class="stat-value" id="queueSize">0</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Latenza</div>
+        <div class="stat-value latency" id="latencyMs">—</div>
       </div>
     </div>
 
@@ -271,18 +388,25 @@
 
   <script>
     let es = null;
-    let queue = [];
+    let queue = [];        // Array of { text, ts }
     let speaking = false;
     let preferredVoice = null;
     let chunksReceived = 0;
     let speakingStartedAt = 0;
     let ttsWatchdog = null;
     let wakeLock = null;
-    // Dynamic TTS watchdog based on text length (8-15s margin)
+    let lastLatencyMs = null;
+
+    // TTS params — persisted in localStorage
+    let ttsRate  = parseFloat(localStorage.getItem('vp_ttsRate')  || '1.0');
+    let ttsPitch = parseFloat(localStorage.getItem('vp_ttsPitch') || '1.0');
+
+    // Dynamic TTS watchdog based on text length (8–15 s margin)
     function getWatchdogTimeout(text) {
       const estimatedDuration = (text.length / 50) * 1000; // ~50 chars/sec spoken
       return Math.min(15000, Math.max(8000, estimatedDuration + 4000));
     }
+
     let currentLang = 'en';
     let lastProcessedSeq = -1;
     let pendingChunks = new Map();
@@ -291,7 +415,46 @@
     let noChunkInterval = null;
     let pendingTimer = null;
 
-    // Wake Lock helpers
+    // ---- DOM refs ----
+    const statusEl         = document.getElementById('status');
+    const transcriptLog    = document.getElementById('transcriptLog');
+    const chunksReceivedEl = document.getElementById('chunksReceived');
+    const queueSizeEl      = document.getElementById('queueSize');
+    const latencyEl        = document.getElementById('latencyMs');
+    const subtitleBox      = document.getElementById('subtitleBox');
+
+    // ---- Params panel ----
+    const paramsToggle = document.getElementById('paramsToggle');
+    const paramsBody   = document.getElementById('paramsBody');
+    const slTtsRate    = document.getElementById('slTtsRate');
+    const valTtsRate   = document.getElementById('valTtsRate');
+    const slTtsPitch   = document.getElementById('slTtsPitch');
+    const valTtsPitch  = document.getElementById('valTtsPitch');
+
+    // Restore slider positions from localStorage
+    slTtsRate.value  = ttsRate;
+    valTtsRate.textContent  = ttsRate.toFixed(1) + 'x';
+    slTtsPitch.value = ttsPitch;
+    valTtsPitch.textContent = ttsPitch.toFixed(1) + 'x';
+
+    paramsToggle.onclick = () => {
+      paramsToggle.classList.toggle('open');
+      paramsBody.classList.toggle('open');
+    };
+
+    slTtsRate.oninput = () => {
+      ttsRate = parseFloat(slTtsRate.value);
+      valTtsRate.textContent = ttsRate.toFixed(1) + 'x';
+      localStorage.setItem('vp_ttsRate', ttsRate);
+    };
+
+    slTtsPitch.oninput = () => {
+      ttsPitch = parseFloat(slTtsPitch.value);
+      valTtsPitch.textContent = ttsPitch.toFixed(1) + 'x';
+      localStorage.setItem('vp_ttsPitch', ttsPitch);
+    };
+
+    // ---- Wake Lock ----
     async function requestWakeLock() {
       if (!('wakeLock' in navigator)) {
         console.warn('[Visitor] Wake Lock API not supported');
@@ -312,35 +475,28 @@
 
     async function releaseWakeLock() {
       if (wakeLock) {
-        try { await wakeLock.release(); } catch (e) { /* already released */ }
+        try { await wakeLock.release(); } catch (_e) { /* already released */ }
         wakeLock = null;
         document.getElementById('wakeLockBadge').style.display = 'none';
       }
     }
 
-    // Reactivate wake lock on visibility change
     document.addEventListener('visibilitychange', async () => {
       if (document.visibilityState === 'visible' && es && !wakeLock) {
         await requestWakeLock();
       }
     });
 
-    const statusEl = document.getElementById("status");
-    const transcriptLog = document.getElementById("transcriptLog");
-    const chunksReceivedEl = document.getElementById("chunksReceived");
-    const queueSizeEl = document.getElementById("queueSize");
-
+    // ---- UI helpers ----
     function setStatus(className, text) {
       statusEl.className = 'status ' + className;
       statusEl.textContent = text;
     }
 
     function addTranscript(text) {
-      const p = document.createElement("p");
+      const p = document.createElement('p');
       p.textContent = text;
       transcriptLog.prepend(p);
-
-      // Keep only last 15 items
       while (transcriptLog.children.length > 15) {
         transcriptLog.removeChild(transcriptLog.lastChild);
       }
@@ -349,6 +505,17 @@
     function updateStats() {
       chunksReceivedEl.textContent = chunksReceived;
       queueSizeEl.textContent = queue.length + (speaking ? 1 : 0);
+      latencyEl.textContent = lastLatencyMs != null ? lastLatencyMs + 'ms' : '—';
+    }
+
+    function showSubtitle(text) {
+      subtitleBox.textContent = text;
+      subtitleBox.classList.add('active');
+    }
+
+    function hideSubtitle() {
+      subtitleBox.textContent = '';
+      subtitleBox.classList.remove('active');
     }
 
     function showNoChunkWarning() {
@@ -360,11 +527,11 @@
     }
 
     // ==========================================
-    // CHUNK SEQUENCE ORDERING (P1)
+    // CHUNK SEQUENCE ORDERING
     // ==========================================
 
     function processChunk(data) {
-      const { text, seq } = data;
+      const { text, seq, ts } = data;
 
       if (seq <= lastProcessedSeq) {
         console.log('[Visitor] Chunk duplicato scartato:', seq);
@@ -372,30 +539,28 @@
       }
 
       if (seq === lastProcessedSeq + 1) {
-        enqueueAndSpeak(text, currentLang);
+        enqueueAndSpeak(text, ts, currentLang);
         lastProcessedSeq = seq;
         processPendingInOrder();
       } else {
-        pendingChunks.set(seq, { text, receivedAt: Date.now() });
+        pendingChunks.set(seq, { text, ts, receivedAt: Date.now() });
         console.log(`[Visitor] Chunk #${seq} fuori ordine, in attesa (ultimo: ${lastProcessedSeq})`);
         scheduleProcessPending();
       }
     }
 
     function scheduleProcessPending() {
-      if (pendingTimer) return; // già schedulato
+      if (pendingTimer) return;
       pendingTimer = setTimeout(() => {
         pendingTimer = null;
         const nextExpected = lastProcessedSeq + 1;
         if (pendingChunks.has(nextExpected)) {
           const chunk = pendingChunks.get(nextExpected);
           pendingChunks.delete(nextExpected);
-          enqueueAndSpeak(chunk.text, currentLang);
+          enqueueAndSpeak(chunk.text, chunk.ts, currentLang);
           lastProcessedSeq = nextExpected;
-          // Rischedula per il successivo
           if (pendingChunks.size > 0) scheduleProcessPending();
         } else if (pendingChunks.size > 0) {
-          // Il seq atteso non è arrivato: salta ai pending disponibili
           const oldest = Math.min(...pendingChunks.keys());
           if (oldest > nextExpected) {
             console.warn('[Visitor] Chunk persi, salto a seq:', oldest - 1);
@@ -410,18 +575,17 @@
       while (pendingChunks.has(lastProcessedSeq + 1)) {
         const chunk = pendingChunks.get(lastProcessedSeq + 1);
         pendingChunks.delete(lastProcessedSeq + 1);
-        enqueueAndSpeak(chunk.text, currentLang);
+        enqueueAndSpeak(chunk.text, chunk.ts, currentLang);
         lastProcessedSeq++;
       }
     }
 
     // ==========================================
-    // AUTO-PRESET ON BACKLOG (P3)
+    // AUTO-PRESET ON BACKLOG
     // ==========================================
 
     function checkBacklogAndAdaptPreset() {
       const estimatedBacklogSeconds = queue.length * 2;
-
       if (estimatedBacklogSeconds > 6) {
         fetch('/preset-suggest', {
           method: 'POST',
@@ -437,25 +601,24 @@
       }
     }
 
+    // ==========================================
+    // VOICE SELECTION
+    // ==========================================
+
     function pickVoice(lang) {
       const voices = window.speechSynthesis.getVoices() || [];
-      const matching = voices.filter(v => (v.lang || "").toLowerCase().startsWith(lang));
-
+      const matching = voices.filter(v => (v.lang || '').toLowerCase().startsWith(lang));
       if (matching.length === 0) return null;
 
-      // Prefer local voices (better quality, no network dependency)
-      const localVoices = matching.filter(v => v.localService === true);
-
-      // Prefer Google/Microsoft voices (higher quality on desktop)
+      // Prefer premium local voices (Google/Microsoft/Apple)
       const premiumVoice = matching.find(v =>
         /google|microsoft|apple/i.test(v.name) && v.localService
       );
       if (premiumVoice) return premiumVoice;
 
-      // Fallback to any local voice
+      const localVoices = matching.filter(v => v.localService === true);
       if (localVoices.length > 0) return localVoices[0];
 
-      // Last resort: any matching voice
       return matching[0];
     }
 
@@ -471,30 +634,44 @@
       });
     }
 
+    // ==========================================
+    // TTS ENGINE
+    // ==========================================
+
     function speakNext(lang) {
       if (speaking || queue.length === 0) {
         updateStats();
         return;
       }
 
-      const text = queue.shift();
-      const u = new SpeechSynthesisUtterance(text);
+      const item = queue.shift();
+      const text    = item.text;
+      const chunkTs = item.ts;
 
+      const u = new SpeechSynthesisUtterance(text);
       if (preferredVoice) u.voice = preferredVoice;
-      u.lang = preferredVoice?.lang || lang;
-      u.rate = 1.0;
-      u.pitch = 1.0;
+      u.lang   = preferredVoice?.lang || lang;
+      u.rate   = ttsRate;
+      u.pitch  = ttsPitch;
       u.volume = 1.0;
 
       speaking = true;
       speakingStartedAt = Date.now();
+
+      // End-to-end latency: from chunk ingestion timestamp to TTS start
+      if (chunkTs) {
+        lastLatencyMs = Date.now() - chunkTs;
+        console.log(`[Visitor] Latency: ${lastLatencyMs}ms`);
+      }
+
       setStatus('speaking', '🔊 Riproduzione...');
+      showSubtitle(text);
       updateStats();
 
       // Clear any previous watchdog
       if (ttsWatchdog) clearInterval(ttsWatchdog);
 
-      // Watchdog: setInterval(1s) checks elapsed time AND backlog before canceling
+      // Watchdog: cancel stalled TTS only when there's a queue backlog
       const watchdogMs = getWatchdogTimeout(text);
       ttsWatchdog = setInterval(() => {
         if (!speaking) { clearInterval(ttsWatchdog); ttsWatchdog = null; return; }
@@ -505,6 +682,7 @@
           ttsWatchdog = null;
           window.speechSynthesis.cancel();
           speaking = false;
+          hideSubtitle();
           speakNext(lang);
         }
       }, 1000);
@@ -512,6 +690,7 @@
       u.onend = () => {
         speaking = false;
         if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
+        hideSubtitle();
         setTimeout(() => {
           if (queue.length > 0) {
             speakNext(lang);
@@ -525,6 +704,7 @@
         console.error('[Visitor] TTS error:', e);
         speaking = false;
         if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
+        hideSubtitle();
         setTimeout(() => speakNext(lang), 100);
       };
 
@@ -532,18 +712,18 @@
       window.speechSynthesis.speak(u);
     }
 
-    function enqueueAndSpeak(text, lang) {
+    function enqueueAndSpeak(text, ts, lang) {
       const cleaned = text.trim();
       if (!cleaned) return;
 
-      queue.push(cleaned);
+      queue.push({ text: cleaned, ts });
 
-      // If queue too long, merge oldest pairs (never interrupt, never lose content)
+      // If queue too long, merge oldest pairs preserving order and earliest timestamp
       while (queue.length > 10 && queue.length >= 2) {
-        const first = queue.shift();
+        const first  = queue.shift();
         const second = queue.shift();
-        queue.unshift(first + ' ' + second);
-        console.log('[Visitor] Queue merged:', (first + ' ' + second).substring(0, 50));
+        queue.unshift({ text: first.text + ' ' + second.text, ts: first.ts });
+        console.log('[Visitor] Queue merged:', (first.text + ' ' + second.text).substring(0, 50));
       }
 
       addTranscript(cleaned);
@@ -558,39 +738,53 @@
       }
     }
 
+    // ==========================================
+    // SSE CONNECTION
+    // ==========================================
+
     function connectSSE(lang) {
       if (es) es.close();
 
       queue = [];
       speaking = false;
       window.speechSynthesis.cancel();
+      hideSubtitle();
       setStatus('connecting', '⏳ Connessione...');
 
       es = new EventSource(`/sse?lang=${lang}`);
 
-      es.addEventListener("hello", (ev) => {
+      es.addEventListener('hello', () => {
         console.log('[Visitor] Connected to SSE');
         setStatus('connected', '🟢 Connesso - In ascolto');
-        // Start no-chunk warning monitor
         lastChunkTime = Date.now();
         if (noChunkInterval) clearInterval(noChunkInterval);
         noChunkInterval = setInterval(() => {
-          if (es && Date.now() - lastChunkTime > 15000) {
-            showNoChunkWarning();
-          }
+          if (es && Date.now() - lastChunkTime > 15000) showNoChunkWarning();
         }, 5000);
       });
 
-      es.addEventListener("ping", () => {
-        // Heartbeat - keep connection alive
+      es.addEventListener('ping', () => {
+        // Heartbeat — keep connection alive
       });
 
-      es.addEventListener("chunk", (ev) => {
+      es.addEventListener('chunk', (ev) => {
         lastChunkTime = Date.now();
         hideNoChunkWarning();
         const data = JSON.parse(ev.data);
         console.log('[Visitor] Received chunk #' + data.seq);
         processChunk(data);
+      });
+
+      // Settings pushed by guide (TTS rate) or replayed for late-joining clients
+      es.addEventListener('settings', (ev) => {
+        const d = JSON.parse(ev.data);
+        if (d.ttsRate != null) {
+          ttsRate = parseFloat(d.ttsRate);
+          localStorage.setItem('vp_ttsRate', ttsRate);
+          slTtsRate.value = ttsRate;
+          valTtsRate.textContent = ttsRate.toFixed(1) + 'x';
+          console.log('[Visitor] TTS rate synced from guide:', ttsRate);
+        }
       });
 
       es.onerror = (e) => {
@@ -605,8 +799,12 @@
       };
     }
 
-    document.getElementById("start").onclick = async () => {
-      const lang = document.getElementById("lang").value;
+    // ==========================================
+    // CONTROLS
+    // ==========================================
+
+    document.getElementById('start').onclick = async () => {
+      const lang = document.getElementById('lang').value;
       currentLang = lang;
       lastProcessedSeq = -1;
       pendingChunks.clear();
@@ -616,13 +814,12 @@
       connectSSE(lang);
       await requestWakeLock();
 
-      // Start backlog monitoring for auto-preset (P3)
       if (backlogInterval) clearInterval(backlogInterval);
       backlogInterval = setInterval(checkBacklogAndAdaptPreset, 5000);
 
-      // iOS workaround: speak silent utterance to unlock audio
+      // iOS workaround: speak silent utterance to unlock audio context
       try {
-        const u = new SpeechSynthesisUtterance(" ");
+        const u = new SpeechSynthesisUtterance(' ');
         u.volume = 0;
         window.speechSynthesis.speak(u);
       } catch (e) {
@@ -630,25 +827,23 @@
       }
     };
 
-    document.getElementById("stop").onclick = async () => {
-      if (es) {
-        es.close();
-        es = null;
-      }
-
+    document.getElementById('stop').onclick = async () => {
+      if (es) { es.close(); es = null; }
       queue = [];
       window.speechSynthesis.cancel();
       speaking = false;
-      if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
-      if (backlogInterval) { clearInterval(backlogInterval); backlogInterval = null; }
-      if (noChunkInterval) { clearInterval(noChunkInterval); noChunkInterval = null; }
-      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+      hideSubtitle();
+      if (ttsWatchdog)    { clearInterval(ttsWatchdog);    ttsWatchdog    = null; }
+      if (backlogInterval){ clearInterval(backlogInterval); backlogInterval = null; }
+      if (noChunkInterval){ clearInterval(noChunkInterval); noChunkInterval = null; }
+      if (pendingTimer)   { clearTimeout(pendingTimer);     pendingTimer    = null; }
       hideNoChunkWarning();
       lastProcessedSeq = -1;
       pendingChunks.clear();
       await releaseWakeLock();
       setStatus('inactive', '⏹ Stop');
       chunksReceived = 0;
+      lastLatencyMs  = null;
       updateStats();
     };
   </script>

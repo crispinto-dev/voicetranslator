@@ -126,9 +126,9 @@
       font-weight: 500;
     }
 
-    .status.inactive { background: #f3f4f6; color: #6b7280; }
-    .status.connecting { background: #fef3c7; color: #92400e; }
-    .status.active { background: #d1fae5; color: #065f46; }
+    .status.inactive  { background: #f3f4f6; color: #6b7280; }
+    .status.connecting{ background: #fef3c7; color: #92400e; }
+    .status.active    { background: #d1fae5; color: #065f46; }
     .status.listening { background: #dbeafe; color: #1e40af; }
 
     .hidden { display: none; }
@@ -152,17 +152,11 @@
       background: white;
     }
 
-    .preset-option:hover {
-      border-color: #f59e0b;
-    }
+    .preset-option:hover { border-color: #f59e0b; }
 
-    .preset-option input {
-      display: none;
-    }
+    .preset-option input { display: none; }
 
-    .preset-option input:checked + .preset-label {
-      font-weight: 700;
-    }
+    .preset-option input:checked + .preset-label { font-weight: 700; }
 
     .preset-option:has(input:checked) {
       border-color: #f59e0b;
@@ -204,9 +198,7 @@
       align-items: center;
     }
 
-    .mic-group select {
-      flex: 1;
-    }
+    .mic-group select { flex: 1; }
 
     .mic-refresh {
       padding: 10px 14px;
@@ -218,9 +210,7 @@
       line-height: 1;
     }
 
-    .mic-refresh:hover {
-      border-color: #f59e0b;
-    }
+    .mic-refresh:hover { border-color: #f59e0b; }
 
     .stats {
       display: grid;
@@ -273,6 +263,140 @@
       padding: 8px;
       background: white;
       border-radius: 6px;
+    }
+
+    /* ==========================================
+       ADVANCED PARAMS PANEL
+       ========================================== */
+
+    .params-panel {
+      margin-top: 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .params-toggle {
+      width: 100%;
+      padding: 10px 15px;
+      background: #fef3c7;
+      border: none;
+      border-bottom: 2px solid transparent;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      color: #92400e;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: inherit;
+      transition: background 0.2s;
+    }
+
+    .params-toggle:hover { background: #fde68a; }
+    .params-toggle.open  { border-bottom-color: #e0e0e0; }
+
+    .params-body {
+      padding: 12px 15px 15px;
+      display: none;
+    }
+
+    .params-body.open { display: block; }
+
+    .params-section {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #999;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin: 12px 0 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .params-section:first-child { margin-top: 0; }
+
+    .param-row {
+      display: grid;
+      grid-template-columns: 1fr 110px 42px;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 7px;
+    }
+
+    .param-label {
+      font-size: 11px;
+      color: #555;
+    }
+
+    .param-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: #e0e0e0;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .param-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: #f59e0b;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .param-slider::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      background: #f59e0b;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+    }
+
+    .param-value {
+      font-size: 11px;
+      font-weight: 600;
+      color: #f59e0b;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .vad-badge {
+      font-size: 10px;
+      color: #065f46;
+      background: #d1fae5;
+      padding: 2px 6px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .vad-badge.visible { opacity: 1; }
+
+    .params-reset {
+      margin-top: 12px;
+      padding: 7px 14px;
+      font-size: 12px;
+      background: #f3f4f6;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      cursor: pointer;
+      color: #555;
+      font-family: inherit;
+      width: 100%;
+      transition: all 0.2s;
+    }
+
+    .params-reset:hover {
+      background: #fef3c7;
+      border-color: #f59e0b;
+      color: #92400e;
     }
   </style>
 </head>
@@ -364,6 +488,70 @@
         <div id="transcriptLog"></div>
       </div>
 
+      <!-- Advanced parameters panel (visible during active session) -->
+      <div class="params-panel" id="paramsPanel">
+        <button class="params-toggle" id="paramsToggle">
+          <span>⚙️ Parametri Avanzati</span>
+          <span id="paramsArrow">▼</span>
+        </button>
+        <div class="params-body" id="paramsBody">
+
+          <div class="params-section">Micro-chunking</div>
+
+          <div class="param-row">
+            <label class="param-label">Pausa STT</label>
+            <input type="range" class="param-slider" id="sl_sttPause" min="200" max="1500" step="50">
+            <span class="param-value" id="val_sttPause">--</span>
+          </div>
+          <div class="param-row">
+            <label class="param-label">Min chunk</label>
+            <input type="range" class="param-slider" id="sl_minChars" min="10" max="80" step="5">
+            <span class="param-value" id="val_minChars">--</span>
+          </div>
+          <div class="param-row">
+            <label class="param-label">Max chunk</label>
+            <input type="range" class="param-slider" id="sl_maxChars" min="60" max="300" step="10">
+            <span class="param-value" id="val_maxChars">--</span>
+          </div>
+          <div class="param-row">
+            <label class="param-label">Flush timer</label>
+            <input type="range" class="param-slider" id="sl_flushMs" min="300" max="2000" step="50">
+            <span class="param-value" id="val_flushMs">--</span>
+          </div>
+          <div class="param-row">
+            <label class="param-label">Gap invii</label>
+            <input type="range" class="param-slider" id="sl_gapMs" min="100" max="500" step="25">
+            <span class="param-value" id="val_gapMs">--</span>
+          </div>
+
+          <div class="params-section">
+            VAD OpenAI
+            <span class="vad-badge" id="vadBadge">✓ inviato</span>
+          </div>
+
+          <div class="param-row">
+            <label class="param-label">Soglia VAD</label>
+            <input type="range" class="param-slider" id="sl_vadThr" min="0.10" max="0.90" step="0.05">
+            <span class="param-value" id="val_vadThr">--</span>
+          </div>
+          <div class="param-row">
+            <label class="param-label">Silenzio VAD</label>
+            <input type="range" class="param-slider" id="sl_silDur" min="300" max="2000" step="50">
+            <span class="param-value" id="val_silDur">--</span>
+          </div>
+
+          <div class="params-section">Visitor TTS</div>
+
+          <div class="param-row">
+            <label class="param-label">Velocità TTS</label>
+            <input type="range" class="param-slider" id="sl_ttsRate" min="0.5" max="2.0" step="0.1">
+            <span class="param-value" id="val_ttsRate">--</span>
+          </div>
+
+          <button class="params-reset" id="paramsReset">↩ Reset al preset</button>
+        </div>
+      </div>
+
       <button class="btn btn-danger" id="stopBtn">
         Termina Sessione
       </button>
@@ -401,6 +589,9 @@
       }
     };
 
+    // Default VAD values (used by reset-to-preset)
+    const VAD_DEFAULTS = { threshold: 0.45, silenceDurationMs: 750 };
+
     class GuideInput {
       constructor() {
         this.session = null;
@@ -412,35 +603,41 @@
 
         // Micro-chunking state - initialized from preset
         this.microBuffer = '';
-        this.microFlushTimer = null;    // for scheduleMicroFlush
-        this.speechStoppedTimer = null; // for speech_stopped delayed flush
+        this.microFlushTimer = null;
+        this.speechStoppedTimer = null;
         this.muteInterval = null;
         this.currentPreset = 'simultaneous';
         this.applyPreset(this.currentPreset);
 
-        // Dedup state (avoid STT repeating same phrase)
+        // Dedup state
         this.lastSentText = '';
         this.lastSentAt = 0;
 
-        // Anti-burst: minimum gap between sends
+        // Anti-burst
         this.lastSendAt = 0;
 
         // Wake lock
         this.wakeLock = null;
 
-        // Delta transcript tracking (forward-compatible)
+        // Delta tracking
         this.gotDelta = false;
 
-        // Latency tracking (P7)
+        // Latency tracking
         this.chunkLatencies = [];
         this.latencyDisplayEl = null;
 
-        // STT activity tracking for pause flush (P5)
+        // STT activity tracking for pause flush
         this.lastSttActivityTime = Date.now();
         this.sttPauseInterval = null;
 
-        // Mic stream reference for explicit cleanup on stop (E)
+        // Mic stream
         this.micStream = null;
+
+        // Advanced params: VAD + TTS rate (adjustable via panel)
+        this.vadThreshold   = VAD_DEFAULTS.threshold;
+        this.silDurationMs  = VAD_DEFAULTS.silenceDurationMs;
+        this.ttsRate        = 1.0;
+        this._vadTimer      = null;  // debounce for VAD session.update
 
         this.initializeUI();
       }
@@ -450,26 +647,25 @@
         this.currentPreset = presetName;
         this.MICRO_MAX_CHARS = preset.MICRO_MAX_CHARS;
         this.MICRO_MIN_CHARS = preset.MICRO_MIN_CHARS;
-        this.MICRO_FLUSH_MS = preset.MICRO_FLUSH_MS;
+        this.MICRO_FLUSH_MS  = preset.MICRO_FLUSH_MS;
         this.MIN_SEND_GAP_MS = preset.MIN_SEND_GAP_MS;
-        this.STT_PAUSE_MS = preset.STT_PAUSE_MS;
+        this.STT_PAUSE_MS    = preset.STT_PAUSE_MS;
         console.log(`[Guide] Applied preset: ${preset.name}`, preset);
       }
 
       initializeUI() {
-        this.setupForm = document.getElementById('setupForm');
-        this.activeSession = document.getElementById('activeSession');
-        this.status = document.getElementById('status');
-        this.chunksSentEl = document.getElementById('chunksSent');
+        this.setupForm        = document.getElementById('setupForm');
+        this.activeSession    = document.getElementById('activeSession');
+        this.status           = document.getElementById('status');
+        this.chunksSentEl     = document.getElementById('chunksSent');
         this.receiverStatusEl = document.getElementById('receiverStatus');
-        this.transcriptLog = document.getElementById('transcriptLog');
+        this.transcriptLog    = document.getElementById('transcriptLog');
         this.targetLanguageSelect = document.getElementById('targetLanguage');
-        this.startBtn = document.getElementById('startBtn');
-        this.stopBtn = document.getElementById('stopBtn');
-
-        this.micSelect = document.getElementById('micSelect');
-        this.micRefresh = document.getElementById('micRefresh');
-        this.wakeLockBadge = document.getElementById('wakeLockBadge');
+        this.startBtn         = document.getElementById('startBtn');
+        this.stopBtn          = document.getElementById('stopBtn');
+        this.micSelect        = document.getElementById('micSelect');
+        this.micRefresh       = document.getElementById('micRefresh');
+        this.wakeLockBadge    = document.getElementById('wakeLockBadge');
         this.latencyDisplayEl = document.getElementById('latencyDisplay');
 
         this.startBtn.addEventListener('click', () => this.start());
@@ -477,7 +673,8 @@
         this.micRefresh.addEventListener('click', () => this.enumerateMics());
         this.enumerateMics();
 
-        // Reactivate wake lock when tab becomes visible again
+        this.initParamsPanel();
+
         document.addEventListener('visibilitychange', async () => {
           if (document.visibilityState === 'visible' && this.isRunning && !this.wakeLock) {
             await this.requestWakeLock();
@@ -485,18 +682,194 @@
         });
       }
 
+      // ==========================================
+      // ADVANCED PARAMS PANEL
+      // ==========================================
+
+      initParamsPanel() {
+        const toggle = document.getElementById('paramsToggle');
+        const body   = document.getElementById('paramsBody');
+        const arrow  = document.getElementById('paramsArrow');
+
+        toggle.addEventListener('click', () => {
+          const open = body.classList.toggle('open');
+          toggle.classList.toggle('open', open);
+          arrow.textContent = open ? '▲' : '▼';
+        });
+
+        // Slider definitions:
+        //   sl      → DOM id suffix (sl_<sl>, val_<sl>)
+        //   lsKey   → localStorage key
+        //   get/set → read/write the live property
+        //   fmt     → display formatter
+        //   onExtra → optional side-effect after set (e.g. VAD update)
+        this._sliderDefs = [
+          {
+            sl: 'sttPause', lsKey: 'gp_sttPause', fmt: v => v + 'ms',
+            get: ()  => this.STT_PAUSE_MS,
+            set: v   => { this.STT_PAUSE_MS = v; }
+          },
+          {
+            sl: 'minChars', lsKey: 'gp_minChars', fmt: v => v + 'c',
+            get: ()  => this.MICRO_MIN_CHARS,
+            set: v   => { this.MICRO_MIN_CHARS = v; }
+          },
+          {
+            sl: 'maxChars', lsKey: 'gp_maxChars', fmt: v => v + 'c',
+            get: ()  => this.MICRO_MAX_CHARS,
+            set: v   => { this.MICRO_MAX_CHARS = v; }
+          },
+          {
+            sl: 'flushMs', lsKey: 'gp_flushMs', fmt: v => v + 'ms',
+            get: ()  => this.MICRO_FLUSH_MS,
+            set: v   => { this.MICRO_FLUSH_MS = v; }
+          },
+          {
+            sl: 'gapMs', lsKey: 'gp_gapMs', fmt: v => v + 'ms',
+            get: ()  => this.MIN_SEND_GAP_MS,
+            set: v   => { this.MIN_SEND_GAP_MS = v; }
+          },
+          {
+            sl: 'vadThr', lsKey: 'gp_vadThr', fmt: v => v.toFixed(2),
+            get: ()  => this.vadThreshold,
+            set: v   => { this.vadThreshold = v; this._scheduleVADUpdate(); }
+          },
+          {
+            sl: 'silDur', lsKey: 'gp_silDur', fmt: v => v + 'ms',
+            get: ()  => this.silDurationMs,
+            set: v   => { this.silDurationMs = v; this._scheduleVADUpdate(); }
+          },
+          {
+            sl: 'ttsRate', lsKey: 'gp_ttsRate', fmt: v => v.toFixed(1) + 'x',
+            get: ()  => this.ttsRate,
+            set: v   => { this.ttsRate = v; this._sendTTSRate(v); }
+          }
+        ];
+
+        this._sliderDefs.forEach(def => {
+          const input = document.getElementById(`sl_${def.sl}`);
+          const valEl = document.getElementById(`val_${def.sl}`);
+          if (!input) return;
+
+          input.addEventListener('input', () => {
+            const v = parseFloat(input.value);
+            valEl.textContent = def.fmt(v);
+            def.set(v);
+            localStorage.setItem(def.lsKey, v);
+          });
+        });
+
+        document.getElementById('paramsReset').addEventListener('click', () => {
+          this._resetToPreset();
+        });
+      }
+
+      // Sync all slider DOM elements from current live values
+      _syncSliders() {
+        this._sliderDefs?.forEach(def => {
+          const input = document.getElementById(`sl_${def.sl}`);
+          const valEl = document.getElementById(`val_${def.sl}`);
+          if (!input) return;
+          const v = def.get();
+          input.value = v;
+          valEl.textContent = def.fmt(v);
+        });
+      }
+
+      // Load any localStorage overrides on top of the preset values
+      _loadSavedParams() {
+        this._sliderDefs?.forEach(def => {
+          const saved = localStorage.getItem(def.lsKey);
+          if (saved !== null) {
+            const v = parseFloat(saved);
+            if (!isNaN(v)) def.set(v);
+          }
+        });
+        this._syncSliders();
+      }
+
+      // Reset all params to the currently selected preset defaults
+      _resetToPreset() {
+        const preset = PRESETS[this.currentPreset] || PRESETS.simultaneous;
+        this.STT_PAUSE_MS    = preset.STT_PAUSE_MS;
+        this.MICRO_MIN_CHARS = preset.MICRO_MIN_CHARS;
+        this.MICRO_MAX_CHARS = preset.MICRO_MAX_CHARS;
+        this.MICRO_FLUSH_MS  = preset.MICRO_FLUSH_MS;
+        this.MIN_SEND_GAP_MS = preset.MIN_SEND_GAP_MS;
+        this.vadThreshold    = VAD_DEFAULTS.threshold;
+        this.silDurationMs   = VAD_DEFAULTS.silenceDurationMs;
+        this.ttsRate         = 1.0;
+        // Clear persisted overrides
+        this._sliderDefs?.forEach(def => localStorage.removeItem(def.lsKey));
+        this._syncSliders();
+        if (this.isRunning) this.sendVADUpdate();
+      }
+
+      // Debounced VAD update (avoids spamming session.update while dragging)
+      _scheduleVADUpdate() {
+        if (this._vadTimer) clearTimeout(this._vadTimer);
+        this._vadTimer = setTimeout(() => {
+          this._vadTimer = null;
+          this.sendVADUpdate();
+        }, 300);
+      }
+
+      // Send session.update to OpenAI to change VAD params without restarting
+      sendVADUpdate() {
+        const transport = this.session?.transport;
+        if (!transport) return;
+        try {
+          transport.sendEvent({
+            type: 'session.update',
+            session: {
+              turn_detection: {
+                type: 'server_vad',
+                threshold: Math.round(this.vadThreshold * 100) / 100,
+                silence_duration_ms: Math.round(this.silDurationMs)
+              }
+            }
+          });
+          // Show brief confirmation badge
+          const badge = document.getElementById('vadBadge');
+          if (badge) {
+            badge.classList.add('visible');
+            setTimeout(() => badge.classList.remove('visible'), 2000);
+          }
+          console.log('[Guide] VAD updated: threshold=', this.vadThreshold,
+            'silence_duration_ms=', this.silDurationMs);
+        } catch (e) {
+          console.warn('[Guide] VAD session.update failed:', e.message);
+        }
+      }
+
+      // Push TTS rate to visitor(s) via server broadcast
+      _sendTTSRate(rate) {
+        if (!this.isRunning) return;
+        fetch('/visitor-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang: this.targetLanguage, ttsRate: rate })
+        }).catch(e => console.warn('[Guide] TTS rate push failed:', e.message));
+      }
+
+      // ==========================================
+      // SESSION LIFECYCLE
+      // ==========================================
+
       async start() {
         try {
           this.targetLanguage = this.targetLanguageSelect.value;
 
-          // Apply selected preset
           const selectedPreset = document.querySelector('input[name="preset"]:checked')?.value || 'simultaneous';
           this.applyPreset(selectedPreset);
+
+          // Load any saved param overrides from localStorage
+          this._loadSavedParams();
 
           this.startBtn.disabled = true;
           this.updateStatus('connecting', '⏳ Connessione...');
 
-          // Pre-acquire microphone with anti-noise constraints (before connect for Android stability)
+          // Pre-acquire microphone with anti-noise constraints
           const selectedMic = this.micSelect?.value;
           const audioConstraints = {
             echoCancellation: true,
@@ -512,37 +885,27 @@
             this.micStream = null;
           }
 
-          // Get token for STT only
           const tokenResponse = await fetch('/api/realtime/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              language: this.targetLanguage,
-              mode: 'stt-only'  // New mode: STT only, no translation
-            })
+            body: JSON.stringify({ language: this.targetLanguage, mode: 'stt-only' })
           });
 
-          if (!tokenResponse.ok) {
-            throw new Error('Failed to get token');
-          }
+          if (!tokenResponse.ok) throw new Error('Failed to get token');
 
           const { token } = await tokenResponse.json();
           console.log('[Guide] Token received');
 
-          // Create agent with minimal instructions (STT only)
           this.agent = new RealtimeAgent({
             name: 'GuideSTT',
             instructions: 'You are a speech-to-text transcriber. Just listen.'
           });
 
-          // Create WebRTC transport using our pre-acquired mic stream.
-          // This prevents the SDK from calling getUserMedia() again internally,
-          // which on mobile can conflict and destabilise the WebRTC connection.
+          // Pass our pre-acquired stream to prevent the SDK calling getUserMedia again
           const transport = new OpenAIRealtimeWebRTC({
             mediaStream: this.micStream || undefined
           });
 
-          // Create session for STT only - NO response generation
           const sessionConfig = {
             model: 'gpt-4o-realtime-preview-2024-12-17',
             inputAudioTranscription: { model: 'whisper-1' },
@@ -550,10 +913,10 @@
             config: {
               turnDetection: {
                 type: 'server_vad',
-                threshold: 0.45,          // Slightly lower to catch speech starts
+                threshold: this.vadThreshold,
                 prefixPaddingMs: 300,
-                silenceDurationMs: 750,   // Lowered for noisy environments
-                createResponse: false,    // NO response - STT only
+                silenceDurationMs: this.silDurationMs,
+                createResponse: false,
                 interruptResponse: false
               }
             }
@@ -562,8 +925,7 @@
           this.session = new RealtimeSession(this.agent, sessionConfig);
           this.setupEventHandlers();
 
-          // Detect unexpected WebRTC drops (ICE failure, network change, etc.)
-          // and clean up so the guide knows to restart rather than staying stuck.
+          // Detect unexpected WebRTC drops and surface them to the guide
           transport.on('connection_change', (status) => {
             console.log('[Guide] WebRTC connection_change:', status);
             if ((status === 'disconnected' || status === 'failed') && this.isRunning) {
@@ -572,11 +934,9 @@
             }
           });
 
-          // Connect
           await this.session.connect({ apiKey: token });
           console.log('[Guide] Connected to OpenAI Realtime API (STT mode)');
 
-          // Mute any audio elements (shouldn't be any, but just in case)
           this.muteAllAudio();
           this.muteInterval = setInterval(() => this.muteAllAudio(), 500);
 
@@ -585,10 +945,8 @@
           this.activeSession.classList.remove('hidden');
           this.isRunning = true;
 
-          // Request wake lock to keep screen on
           await this.requestWakeLock();
 
-          // Start STT pause flush (P5: flush buffer on 450ms silence in simultaneous mode)
           this.lastSttActivityTime = Date.now();
           if (this.sttPauseInterval) clearInterval(this.sttPauseInterval);
           this.sttPauseInterval = setInterval(() => {
@@ -607,18 +965,17 @@
       }
 
       async stop() {
-        if (!this.isRunning) return; // prevent double-call (e.g. from connection_change handler)
-        this.isRunning = false;      // set immediately so re-entry is blocked
+        if (!this.isRunning) return;
+        this.isRunning = false;
         console.log('[Guide] Stopping session...');
 
-        // First: stop all timers and intervals
-        if (this.microFlushTimer) { clearTimeout(this.microFlushTimer); this.microFlushTimer = null; }
-        if (this.speechStoppedTimer) { clearTimeout(this.speechStoppedTimer); this.speechStoppedTimer = null; }
-        if (this.sttPauseInterval) { clearInterval(this.sttPauseInterval); this.sttPauseInterval = null; }
-        if (this.muteInterval) { clearInterval(this.muteInterval); this.muteInterval = null; }
+        if (this._vadTimer) { clearTimeout(this._vadTimer); this._vadTimer = null; }
+        if (this.microFlushTimer)   { clearTimeout(this.microFlushTimer);   this.microFlushTimer = null; }
+        if (this.speechStoppedTimer){ clearTimeout(this.speechStoppedTimer); this.speechStoppedTimer = null; }
+        if (this.sttPauseInterval)  { clearInterval(this.sttPauseInterval); this.sttPauseInterval = null; }
+        if (this.muteInterval)      { clearInterval(this.muteInterval);     this.muteInterval = null; }
         this.microBuffer = '';
 
-        // Disconnect session with timeout (some devices can hang on disconnect)
         if (this.session) {
           try {
             const disconnectFn = (this.session.disconnect || this.session.close)?.bind(this.session);
@@ -627,17 +984,14 @@
                 disconnectFn(),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
               ]);
-            } else {
-              console.warn('[Guide] Nessun metodo disconnect/close sulla sessione');
             }
           } catch (err) {
             console.warn('[Guide] Disconnect failed or timed out:', err.message);
           }
           this.session = null;
-          this.agent = null;
+          this.agent   = null;
         }
 
-        // Always stop mic stream (even if disconnect failed)
         if (this.micStream) {
           this.micStream.getTracks().forEach(t => {
             t.stop();
@@ -646,7 +1000,6 @@
           this.micStream = null;
         }
 
-        // Release wake lock
         await this.releaseWakeLock();
 
         this.setupForm.classList.remove('hidden');
@@ -663,7 +1016,6 @@
         if (!this.session) return;
 
         this.session.on('transport_event', (event) => {
-          // Log for debugging
           if (event.type?.includes('transcription') || event.type?.includes('speech')) {
             console.log('[Guide Event]', event.type, JSON.stringify(event).substring(0, 200));
           }
@@ -678,22 +1030,19 @@
             case 'input_audio_buffer.speech_stopped':
               console.log('[Guide] Speech stopped, waiting for transcription...');
               this.updateStatus('active', '🔄 Trascrizione...');
-              // Delayed flush: wait for transcription.completed to arrive first
               if (this.speechStoppedTimer) clearTimeout(this.speechStoppedTimer);
               this.speechStoppedTimer = setTimeout(() => {
                 this.flushMicroBuffer('speech_stopped_delayed');
               }, 300);
               break;
 
-            // Delta transcript (forward-compatible: if API adds streaming input transcription)
             case 'conversation.item.input_audio_transcription.delta': {
               const rawDelta = event.delta || '';
-              const deltaText = rawDelta.trim(); // trimmed only for empty-check and logging
+              const deltaText = rawDelta.trim();
               if (deltaText) {
                 this.lastSttActivityTime = Date.now();
                 this.gotDelta = true;
                 console.log('[Guide] 📝 STT delta:', deltaText);
-                // Use rawDelta (not trimmed) to preserve inter-word spaces
                 this.microBuffer = (this.microBuffer || '') + rawDelta;
                 if (this.microBuffer.length >= this.MICRO_MAX_CHARS) {
                   this.flushMicroBuffer('delta_max');
@@ -704,20 +1053,17 @@
               break;
             }
 
-            // Complete transcription: buffer for micro-chunking
             case 'conversation.item.input_audio_transcription.completed': {
               this.lastSttActivityTime = Date.now();
               const itText = (event.transcript || '').trim();
               console.log('[Guide] 📝 STT completed:', itText);
 
               if (this.gotDelta) {
-                // Already processed via deltas - just flush on strong punctuation
                 this.gotDelta = false;
                 if (/[.!?]$/.test(itText) && this.microBuffer) {
                   this.flushMicroBuffer('punct_after_delta');
                 }
               } else if (itText) {
-                // No deltas - use completed text as before
                 this.microBuffer = (this.microBuffer ? (this.microBuffer + ' ') : '') + itText;
                 const endsStrong = /[.!?]$/.test(itText);
                 if (endsStrong || this.microBuffer.length >= this.MICRO_MAX_CHARS) {
@@ -750,7 +1096,6 @@
       }
 
       splitIntoMicroChunks(text) {
-        // Split on strong punctuation, keeping the punctuation with the sentence
         const parts = text
           .replace(/\s+/g, ' ')
           .split(/(?<=[\.\!\?\:\;])\s+/)
@@ -763,14 +1108,12 @@
         const buf = (this.microBuffer || '').trim();
         if (!buf) return;
 
-        // If too short and doesn't end with strong punctuation, wait more
         const endsStrong = /[.!?]$/.test(buf);
         if (!endsStrong && buf.length < this.MICRO_MIN_CHARS) {
           this.scheduleMicroFlush();
           return;
         }
 
-        // Avoid flushing on Italian connectives (sounds unnatural in TTS)
         const badEnding = /\b(e|ma|perché|quindi|che|di|a|da|in|con|su|per|tra|fra|un|una|il|lo|la|i|gli|le|al|del|nel|the|and|but|or|to|of)\s*$/i;
         if (!endsStrong && badEnding.test(buf) && buf.length < this.MICRO_MAX_CHARS) {
           console.log('[Guide] Bad ending, waiting for more text');
@@ -778,9 +1121,7 @@
           return;
         }
 
-        // Split into micro-chunks
         const chunks = this.splitIntoMicroChunks(buf);
-
         if (chunks.length === 0) {
           this.sendSourceText(buf);
         } else {
@@ -790,14 +1131,8 @@
         }
 
         this.microBuffer = '';
-        if (this.microFlushTimer) {
-          clearTimeout(this.microFlushTimer);
-          this.microFlushTimer = null;
-        }
-        if (this.speechStoppedTimer) {
-          clearTimeout(this.speechStoppedTimer);
-          this.speechStoppedTimer = null;
-        }
+        if (this.microFlushTimer)    { clearTimeout(this.microFlushTimer);    this.microFlushTimer = null; }
+        if (this.speechStoppedTimer) { clearTimeout(this.speechStoppedTimer); this.speechStoppedTimer = null; }
 
         console.log(`[Guide] Micro flush (${reason}): ${chunks.length} chunk(s)`);
       }
@@ -808,37 +1143,34 @@
         try {
           const now = Date.now();
 
-          // Anti-burst: ensure minimum gap between sends
           const gap = now - this.lastSendAt;
           if (gap < this.MIN_SEND_GAP_MS) {
             setTimeout(() => this.sendSourceText(sourceText), this.MIN_SEND_GAP_MS - gap);
             return;
           }
 
-          // Dedup: skip if same text was sent recently (STT sometimes repeats)
           const normalized = sourceText.replace(/\s+/g, ' ').trim().toLowerCase();
           if (normalized && normalized === this.lastSentText && (now - this.lastSentAt) < 2500) {
             console.log('[Guide] Dedup skip:', sourceText.substring(0, 30) + '...');
             return;
           }
           this.lastSentText = normalized;
-          this.lastSendAt = now;
+          this.lastSendAt   = now;
 
           const chunk = {
             lang: this.targetLanguage,
             sourceLang: 'it',
-            sourceText: sourceText,
+            sourceText,
             ts: now,
             seq: ++this.sequenceNumber
           };
 
-          console.log(`[Guide] Sending source chunk #${chunk.seq} -> ${chunk.lang}:`, sourceText);
+          console.log(`[Guide] Sending chunk #${chunk.seq} → ${chunk.lang}:`, sourceText);
 
           const sentAt = Date.now();
           const result = await this.sendWithRetry(chunk);
 
           if (result) {
-            // Track latency (P7)
             const latency = Date.now() - sentAt;
             this.chunkLatencies.push(latency);
             if (this.chunkLatencies.length > 5) this.chunkLatencies.shift();
@@ -848,13 +1180,12 @@
             this.chunksSent++;
             this.chunksSentEl.textContent = this.chunksSent;
 
-            // Show receiver status
             this.updateReceiverStatus(result.hasReceiver ? (result.accepted ? 'ok' : 'mismatch') : 'offline');
 
-            // Check if visitor suggests a different preset (P3: auto-preset)
             if (result.suggestedPreset && result.suggestedPreset !== this.currentPreset) {
               console.log(`[Guide] Visitor suggests preset: ${result.suggestedPreset}`);
               this.applyPreset(result.suggestedPreset);
+              this._syncSliders();
               const radio = document.querySelector(`input[name="preset"][value="${result.suggestedPreset}"]`);
               if (radio) radio.checked = true;
             }
@@ -862,7 +1193,6 @@
             this.addToTranscript(sourceText);
             console.log(`[Guide] Sent. latency=${latency}ms hasReceiver=${result.hasReceiver}`);
           } else {
-            // sendWithRetry returned null → all retries failed
             this.updateReceiverStatus('error');
           }
         } catch (err) {
@@ -876,7 +1206,6 @@
         this.receiverStatusEl.textContent = icons[status] || '🔴';
       }
 
-      // Network retry with exponential backoff (P8)
       async sendWithRetry(chunk, maxRetries = 3) {
         let delay = 1000;
         for (let i = 0; i < maxRetries; i++) {
@@ -887,18 +1216,16 @@
               body: JSON.stringify(chunk)
             });
 
-            // Check HTTP status before parsing JSON
             if (!response.ok) {
               const text = await response.text();
               console.warn(`[Guide] Server error ${response.status}:`, text.substring(0, 100));
               throw new Error(`HTTP ${response.status}`);
             }
 
-            // Parse JSON with fallback for non-JSON responses (e.g. gateway HTML errors)
             let result;
             try {
               result = await response.json();
-            } catch (jsonErr) {
+            } catch {
               console.warn('[Guide] Risposta non-JSON dal server, assumo ok');
               result = { ok: true };
             }
@@ -923,10 +1250,7 @@
       // ==========================================
 
       async requestWakeLock() {
-        if (!('wakeLock' in navigator)) {
-          console.warn('[Guide] Wake Lock API not supported');
-          return;
-        }
+        if (!('wakeLock' in navigator)) return;
         try {
           this.wakeLock = await navigator.wakeLock.request('screen');
           this.wakeLockBadge.style.display = '';
@@ -942,7 +1266,7 @@
 
       async releaseWakeLock() {
         if (this.wakeLock) {
-          try { await this.wakeLock.release(); } catch (e) { /* already released */ }
+          try { await this.wakeLock.release(); } catch { /* already released */ }
           this.wakeLock = null;
           this.wakeLockBadge.style.display = 'none';
         }
@@ -954,16 +1278,14 @@
 
       async enumerateMics() {
         try {
-          // Request permission to get device labels
           const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           tempStream.getTracks().forEach(t => t.stop());
 
           const devices = await navigator.mediaDevices.enumerateDevices();
-          const mics = devices.filter(d => d.kind === 'audioinput');
+          const mics    = devices.filter(d => d.kind === 'audioinput');
+          const saved   = localStorage.getItem('voicetranslator_mic');
 
-          const saved = localStorage.getItem('voicetranslator_mic');
           this.micSelect.innerHTML = '<option value="">Default del sistema</option>';
-
           mics.forEach(mic => {
             const opt = document.createElement('option');
             opt.value = mic.deviceId;
@@ -986,22 +1308,20 @@
         const p = document.createElement('p');
         p.textContent = text;
         this.transcriptLog.prepend(p);
-
-        // Keep only last 10 items
         while (this.transcriptLog.children.length > 10) {
           this.transcriptLog.removeChild(this.transcriptLog.lastChild);
         }
       }
 
       updateStatus(state, text) {
-        this.status.className = 'status ' + state;
+        this.status.className  = 'status ' + state;
         this.status.textContent = text;
       }
 
       muteAllAudio() {
         document.querySelectorAll('audio').forEach(audio => {
           audio.volume = 0;
-          audio.muted = true;
+          audio.muted  = true;
           audio.pause();
         });
       }
