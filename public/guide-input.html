@@ -671,12 +671,14 @@
 
             // Delta transcript (forward-compatible: if API adds streaming input transcription)
             case 'conversation.item.input_audio_transcription.delta': {
-              const deltaText = (event.delta || '').trim();
+              const rawDelta = event.delta || '';
+              const deltaText = rawDelta.trim(); // trimmed only for empty-check and logging
               if (deltaText) {
                 this.lastSttActivityTime = Date.now();
                 this.gotDelta = true;
                 console.log('[Guide] 📝 STT delta:', deltaText);
-                this.microBuffer = (this.microBuffer || '') + deltaText;
+                // Use rawDelta (not trimmed) to preserve inter-word spaces
+                this.microBuffer = (this.microBuffer || '') + rawDelta;
                 if (this.microBuffer.length >= this.MICRO_MAX_CHARS) {
                   this.flushMicroBuffer('delta_max');
                 } else {
