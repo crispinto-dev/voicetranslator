@@ -27,13 +27,51 @@ const staticDir = process.env.NODE_ENV === 'production'
 console.log(`Serving static files from: ${staticDir}`);
 app.use(express.static(staticDir));
 
+// ==========================================
+// RATE LIMITER (no external dependencies)
+// ==========================================
+
+const rateLimits = new Map(); // key → { count, resetAt }
+
+// Cleanup expired entries every minute
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of rateLimits) {
+    if (now > v.resetAt) rateLimits.delete(k);
+  }
+}, 60000);
+
+function rateLimit(limit, windowMs) {
+  return (req, res, next) => {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const key = `${ip}:${req.path}`;
+    const now = Date.now();
+    const entry = rateLimits.get(key);
+    if (!entry || now > entry.resetAt) {
+      rateLimits.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+    if (++entry.count > limit) {
+      console.warn(`[RateLimit] ${ip} exceeded ${limit} req/${windowMs}ms on ${req.path}`);
+      return res.status(429).json({ error: 'Too many requests, try again later.' });
+    }
+    next();
+  };
+}
+
+// ==========================================
+// SUPPORTED LANGUAGES (for validation)
+// ==========================================
+
+const SUPPORTED_LANGS = new Set(['en', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ja', 'ko', 'ar', 'ru']);
+
 // Health check endpoint
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
 // Endpoint to generate ephemeral API key for Realtime API
-app.post('/api/realtime/token', async (req, res) => {
+app.post('/api/realtime/token', rateLimit(5, 60000), async (req, res) => {
   try {
     const { language = 'en', mode = 'normal' } = req.body;
 
@@ -214,6 +252,13 @@ Keep it natural and suitable for text-to-speech.`
 }
 
 // ==========================================
+// SESSION LOG
+// ==========================================
+
+// In-memory log, max 1000 entries (auto-rotate)
+const sessionLog = [];
+
+// ==========================================
 // SSE MULTI-CLIENT STATE
 // ==========================================
 
@@ -299,8 +344,28 @@ app.get('/status', (_req, res) => {
     byLang,
     uptime: Math.floor((Date.now() - serverStartTime) / 1000),
     totalChunksTranslated,
+    sessionLogEntries: sessionLog.length,
     pendingLangs: [...pendingByLang.keys()]
   });
+});
+
+// ==========================================
+// SESSION LOG ENDPOINTS
+// ==========================================
+
+app.get('/session-log', (_req, res) => {
+  res.json({ entries: sessionLog.length, log: sessionLog });
+});
+
+app.get('/session-log/csv', (_req, res) => {
+  const esc = s => `"${String(s).replace(/"/g, '""')}"`;
+  const header = 'timestamp,lang,seq,latencyMs,sourceText,translatedText\n';
+  const rows = sessionLog.map(e =>
+    [e.timestamp, e.lang, e.seq ?? '', e.latencyMs, esc(e.sourceText), esc(e.translatedText)].join(',')
+  ).join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="avatour-session-log.csv"');
+  res.send(header + rows);
 });
 
 // ==========================================
@@ -370,10 +435,23 @@ async function flushLang(lk) {
   const combinedText = batch.texts.join(' ');
   console.log(`[Ingest] Translating ${batch.texts.length} chunk(s) → ${lk}: "${combinedText.substring(0, 80)}"`);
 
+  const flushStartMs = Date.now();
   try {
     const translated = await translateText({ sourceText: combinedText, targetLang: lk });
-    console.log(`[Ingest] → "${translated.substring(0, 80)}"`);
+    const latencyMs = Date.now() - flushStartMs;
+    console.log(`[Ingest] → "${translated.substring(0, 80)}" (${latencyMs}ms)`);
     totalChunksTranslated++;
+
+    // Persist to session log
+    sessionLog.push({
+      timestamp: new Date().toISOString(),
+      seq: batch.seq,
+      lang: lk,
+      sourceText: combinedText,
+      translatedText: translated,
+      latencyMs
+    });
+    if (sessionLog.length > 1000) sessionLog.shift();
 
     const sent = broadcastToLang(lk, {
       id: ++globalEventId,
@@ -387,14 +465,26 @@ async function flushLang(lk) {
 }
 
 // Ingest: receives source text chunks from the guide device
-app.post('/ingest', (req, res) => {
+app.post('/ingest', rateLimit(30, 60000), (req, res) => {
   const { sourceText, ts, seq, lang } = req.body || {};
 
-  if (!sourceText || !lang) {
-    return res.status(400).json({ ok: false, error: 'Missing sourceText or lang' });
+  // Input validation
+  if (typeof sourceText !== 'string' || sourceText.length === 0 || sourceText.length > 1000) {
+    return res.status(400).json({ ok: false, error: 'sourceText missing, empty, or too long (max 1000 chars)' });
+  }
+  if (!lang) {
+    return res.status(400).json({ ok: false, error: 'Missing lang' });
   }
 
   const lk = lang.toLowerCase();
+
+  if (!SUPPORTED_LANGS.has(lk)) {
+    return res.status(400).json({ ok: false, error: `Unsupported language: ${lk}` });
+  }
+  if (seq !== undefined && (typeof seq !== 'number' || !Number.isFinite(seq) || seq < 0)) {
+    return res.status(400).json({ ok: false, error: 'Invalid seq: must be a non-negative number' });
+  }
+
   const receiverCount = [...sseClients.values()].filter(c => c.lang === lk).length;
   const hasReceiver   = receiverCount > 0;
 

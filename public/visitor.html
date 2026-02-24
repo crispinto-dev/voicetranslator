@@ -254,6 +254,27 @@
 
     .stat-value.latency { font-size: 15px; }
 
+    .stats-ext {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .btn-manual-reconnect {
+      width: 100%;
+      padding: 12px;
+      margin-top: 12px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      display: none;
+    }
+
     /* ---- Transcript ---- */
     .transcript {
       margin-top: 20px;
@@ -335,6 +356,7 @@
     </div>
 
     <div class="status inactive" id="status">Pronto</div>
+    <button class="btn-manual-reconnect" id="manualReconnectBtn">🔄 Riconnetti manualmente</button>
     <div class="wake-lock-badge" id="wakeLockBadge" style="display:none">🔒 Schermo attivo</div>
 
     <!-- TTS parameters panel -->
@@ -372,6 +394,17 @@
       </div>
     </div>
 
+    <div class="stats-ext">
+      <div class="stat-box">
+        <div class="stat-label">Latenza media</div>
+        <div class="stat-value latency" id="avgLatencyMs">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Coda stimata</div>
+        <div class="stat-value latency" id="queueTimeEst">—</div>
+      </div>
+    </div>
+
     <div class="transcript">
       <h3>Testo Ricevuto</h3>
       <div id="transcriptLog"></div>
@@ -396,6 +429,12 @@
     let ttsWatchdog = null;
     let wakeLock = null;
     let lastLatencyMs = null;
+    let latencyHistory = [];   // rolling window of last 10 latencies
+
+    // Reconnect state
+    let reconnectAttempts = 0;
+    let reconnectCountdownTimer = null;
+    const MAX_RECONNECT_ATTEMPTS = 3;
 
     // TTS params — persisted in localStorage
     let ttsRate  = parseFloat(localStorage.getItem('vp_ttsRate')  || '1.0');
@@ -421,6 +460,8 @@
     const chunksReceivedEl = document.getElementById('chunksReceived');
     const queueSizeEl      = document.getElementById('queueSize');
     const latencyEl        = document.getElementById('latencyMs');
+    const avgLatencyEl     = document.getElementById('avgLatencyMs');
+    const queueTimeEl      = document.getElementById('queueTimeEst');
     const subtitleBox      = document.getElementById('subtitleBox');
 
     // ---- Params panel ----
@@ -506,6 +547,14 @@
       chunksReceivedEl.textContent = chunksReceived;
       queueSizeEl.textContent = queue.length + (speaking ? 1 : 0);
       latencyEl.textContent = lastLatencyMs != null ? lastLatencyMs + 'ms' : '—';
+      // Rolling average of last 10 latencies
+      const avgLat = latencyHistory.length
+        ? Math.round(latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length)
+        : null;
+      avgLatencyEl.textContent = avgLat != null ? avgLat + 'ms' : '—';
+      // Estimated time remaining in queue (chars / 50 chars-per-sec / ttsRate)
+      const queueSecs = queue.reduce((s, it) => s + it.text.length / 50 / ttsRate, 0);
+      queueTimeEl.textContent = queueSecs > 0.5 ? Math.round(queueSecs) + 's' : '—';
     }
 
     function showSubtitle(text) {
@@ -661,7 +710,9 @@
       // End-to-end latency: from chunk ingestion timestamp to TTS start
       if (chunkTs) {
         lastLatencyMs = Date.now() - chunkTs;
-        console.log(`[Visitor] Latency: ${lastLatencyMs}ms`);
+        latencyHistory.push(lastLatencyMs);
+        if (latencyHistory.length > 10) latencyHistory.shift();
+        console.log(`[Visitor] Latency: ${lastLatencyMs}ms (avg: ${Math.round(latencyHistory.reduce((a,b)=>a+b,0)/latencyHistory.length)}ms)`);
       }
 
       setStatus('speaking', '🔊 Riproduzione...');
@@ -751,10 +802,12 @@
       hideSubtitle();
       setStatus('connecting', '⏳ Connessione...');
 
-      es = new EventSource(`/sse?lang=${lang}`);
+      es = new EventSource(`/sse?lang=${lang}&lastSeq=${lastProcessedSeq}`);
 
       es.addEventListener('hello', () => {
         console.log('[Visitor] Connected to SSE');
+        reconnectAttempts = 0;   // successful connection resets counter
+        document.getElementById('manualReconnectBtn').style.display = 'none';
         setStatus('connected', '🟢 Connesso - In ascolto');
         lastChunkTime = Date.now();
         if (noChunkInterval) clearInterval(noChunkInterval);
@@ -787,17 +840,42 @@
         }
       });
 
-      es.onerror = (e) => {
-        console.error('[Visitor] SSE error:', e);
-        if (es.readyState === EventSource.CLOSED) {
+      es.onerror = () => {
+        reconnectAttempts++;
+        console.warn(`[Visitor] SSE error, attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+
+        if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+          // Give up on auto-reconnect, show manual button
+          if (es) { es.close(); es = null; }
+          if (reconnectCountdownTimer) { clearInterval(reconnectCountdownTimer); reconnectCountdownTimer = null; }
           setStatus('inactive', '🔴 Connessione persa');
-          console.log('[Visitor] Connection closed permanently');
-        } else {
-          setStatus('connecting', '🔄 Riconnessione...');
-          console.log('[Visitor] EventSource will auto-reconnect...');
+          document.getElementById('manualReconnectBtn').style.display = '';
+          return;
         }
+
+        // Show countdown (browser handles actual reconnect timing)
+        let secs = reconnectAttempts * 5;
+        setStatus('connecting', `🔄 Riconnessione tra ${secs}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+        if (reconnectCountdownTimer) clearInterval(reconnectCountdownTimer);
+        reconnectCountdownTimer = setInterval(() => {
+          secs--;
+          if (secs > 0) {
+            setStatus('connecting', `🔄 Riconnessione tra ${secs}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+          } else {
+            clearInterval(reconnectCountdownTimer);
+            reconnectCountdownTimer = null;
+          }
+        }, 1000);
       };
     }
+
+    function manualReconnect() {
+      document.getElementById('manualReconnectBtn').style.display = 'none';
+      reconnectAttempts = 0;
+      connectSSE(currentLang);
+    }
+
+    document.getElementById('manualReconnectBtn').onclick = manualReconnect;
 
     // ==========================================
     // CONTROLS
@@ -833,17 +911,21 @@
       window.speechSynthesis.cancel();
       speaking = false;
       hideSubtitle();
-      if (ttsWatchdog)    { clearInterval(ttsWatchdog);    ttsWatchdog    = null; }
-      if (backlogInterval){ clearInterval(backlogInterval); backlogInterval = null; }
-      if (noChunkInterval){ clearInterval(noChunkInterval); noChunkInterval = null; }
-      if (pendingTimer)   { clearTimeout(pendingTimer);     pendingTimer    = null; }
+      if (ttsWatchdog)             { clearInterval(ttsWatchdog);             ttsWatchdog             = null; }
+      if (backlogInterval)         { clearInterval(backlogInterval);          backlogInterval          = null; }
+      if (noChunkInterval)         { clearInterval(noChunkInterval);          noChunkInterval          = null; }
+      if (pendingTimer)            { clearTimeout(pendingTimer);              pendingTimer             = null; }
+      if (reconnectCountdownTimer) { clearInterval(reconnectCountdownTimer);  reconnectCountdownTimer  = null; }
       hideNoChunkWarning();
       lastProcessedSeq = -1;
       pendingChunks.clear();
+      reconnectAttempts = 0;
+      document.getElementById('manualReconnectBtn').style.display = 'none';
       await releaseWakeLock();
       setStatus('inactive', '⏹ Stop');
       chunksReceived = 0;
       lastLatencyMs  = null;
+      latencyHistory = [];
       updateStats();
     };
   </script>

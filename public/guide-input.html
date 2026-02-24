@@ -398,6 +398,142 @@
       border-color: #f59e0b;
       color: #92400e;
     }
+
+    /* ---- Preset status badge in toggle ---- */
+    .preset-status-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: #e5e7eb;
+      color: #6b7280;
+      margin: 0 4px;
+      transition: all 0.2s;
+    }
+    .preset-status-badge.matched { background: #d1fae5; color: #065f46; }
+    .preset-status-badge.custom  { background: #fef3c7; color: #92400e; }
+
+    /* ---- Preset mini buttons ---- */
+    .params-presets-mini {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .preset-mini {
+      flex: 1;
+      padding: 6px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+      color: #555;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .preset-mini:hover { border-color: #f59e0b; color: #b45309; }
+    .preset-mini.active { border-color: #f59e0b; background: #fef3c7; color: #b45309; }
+
+    /* ---- Redesigned param row ---- */
+    .param-row {
+      margin-bottom: 10px;
+    }
+    .param-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 3px;
+      gap: 4px;
+    }
+    .param-label-text {
+      font-size: 11px;
+      color: #555;
+      flex: 1;
+    }
+    .tip-btn {
+      background: none;
+      border: 1px solid #ccc;
+      border-radius: 50%;
+      width: 15px;
+      height: 15px;
+      font-size: 9px;
+      cursor: pointer;
+      color: #999;
+      line-height: 1;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .tip-btn:hover { border-color: #f59e0b; color: #b45309; }
+    .param-track {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .param-track .param-slider { flex: 1; }
+    .param-edge {
+      font-size: 9px;
+      color: #aaa;
+      white-space: nowrap;
+      min-width: 28px;
+    }
+    .param-edge:last-child { text-align: right; }
+    .param-tip {
+      font-size: 11px;
+      color: #555;
+      background: #fffbeb;
+      border-left: 3px solid #f59e0b;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .preset-ruler {
+      position: relative;
+      height: 14px;
+      margin: 1px 0 0;
+      padding: 0 2px;
+    }
+    .preset-dot {
+      position: absolute;
+      transform: translateX(-50%);
+      font-size: 8px;
+      font-weight: 700;
+      color: white;
+      border-radius: 3px;
+      padding: 1px 3px;
+      line-height: 1.4;
+      top: 0;
+      white-space: nowrap;
+    }
+    .preset-dot.s { background: #f59e0b; }
+    .preset-dot.e { background: #6366f1; }
+    .preset-dot.n { background: #3b82f6; }
+
+    /* ---- Extended stats row ---- */
+    .stats-sm {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .stat-value.sm { font-size: 15px; }
+
+    /* ---- Export log button ---- */
+    .btn-export {
+      width: 100%;
+      padding: 8px;
+      margin-top: 8px;
+      border: 1.5px solid #10b981;
+      border-radius: 8px;
+      background: white;
+      color: #065f46;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.2s;
+    }
+    .btn-export:hover { background: #d1fae5; }
   </style>
 </head>
 <body>
@@ -488,66 +624,37 @@
         <div id="transcriptLog"></div>
       </div>
 
+      <!-- Extended stats: buffer, words/min, session timer -->
+      <div class="stats-sm" id="extGuideStats">
+        <div class="stat-box">
+          <div class="stat-label">Buffer</div>
+          <div class="stat-value sm" id="bufferLen">0c</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Parole/min</div>
+          <div class="stat-value sm" id="wordsPerMin">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Sessione</div>
+          <div class="stat-value sm" id="sessionTimer">00:00</div>
+        </div>
+      </div>
+
+      <!-- Export session log -->
+      <button class="btn-export" id="exportLogBtn">📊 Esporta Log Sessione</button>
+
       <!-- Advanced parameters panel (visible during active session) -->
       <div class="params-panel" id="paramsPanel">
         <button class="params-toggle" id="paramsToggle">
           <span>⚙️ Parametri Avanzati</span>
+          <span id="presetBadge" class="preset-status-badge"></span>
           <span id="paramsArrow">▼</span>
         </button>
         <div class="params-body" id="paramsBody">
-
-          <div class="params-section">Micro-chunking</div>
-
-          <div class="param-row">
-            <label class="param-label">Pausa STT</label>
-            <input type="range" class="param-slider" id="sl_sttPause" min="200" max="1500" step="50">
-            <span class="param-value" id="val_sttPause">--</span>
-          </div>
-          <div class="param-row">
-            <label class="param-label">Min chunk</label>
-            <input type="range" class="param-slider" id="sl_minChars" min="10" max="80" step="5">
-            <span class="param-value" id="val_minChars">--</span>
-          </div>
-          <div class="param-row">
-            <label class="param-label">Max chunk</label>
-            <input type="range" class="param-slider" id="sl_maxChars" min="60" max="300" step="10">
-            <span class="param-value" id="val_maxChars">--</span>
-          </div>
-          <div class="param-row">
-            <label class="param-label">Flush timer</label>
-            <input type="range" class="param-slider" id="sl_flushMs" min="300" max="2000" step="50">
-            <span class="param-value" id="val_flushMs">--</span>
-          </div>
-          <div class="param-row">
-            <label class="param-label">Gap invii</label>
-            <input type="range" class="param-slider" id="sl_gapMs" min="100" max="500" step="25">
-            <span class="param-value" id="val_gapMs">--</span>
-          </div>
-
-          <div class="params-section">
-            VAD OpenAI
-            <span class="vad-badge" id="vadBadge">✓ inviato</span>
-          </div>
-
-          <div class="param-row">
-            <label class="param-label">Soglia VAD</label>
-            <input type="range" class="param-slider" id="sl_vadThr" min="0.10" max="0.90" step="0.05">
-            <span class="param-value" id="val_vadThr">--</span>
-          </div>
-          <div class="param-row">
-            <label class="param-label">Silenzio VAD</label>
-            <input type="range" class="param-slider" id="sl_silDur" min="300" max="2000" step="50">
-            <span class="param-value" id="val_silDur">--</span>
-          </div>
-
-          <div class="params-section">Visitor TTS</div>
-
-          <div class="param-row">
-            <label class="param-label">Velocità TTS</label>
-            <input type="range" class="param-slider" id="sl_ttsRate" min="0.5" max="2.0" step="0.1">
-            <span class="param-value" id="val_ttsRate">--</span>
-          </div>
-
+          <!-- Preset quick-select buttons (generated by JS) -->
+          <div class="params-presets-mini" id="paramsMiniPresets"></div>
+          <!-- Slider rows (generated dynamically by initParamsPanel()) -->
+          <div id="paramsSliders"></div>
           <button class="params-reset" id="paramsReset">↩ Reset al preset</button>
         </div>
       </div>
@@ -639,6 +746,15 @@
         this.ttsRate        = 1.0;
         this._vadTimer      = null;  // debounce for VAD session.update
 
+        // VAD ack tracking
+        this._pendingVADUpdate = false;
+        this._vadAckTimeout    = null;
+
+        // Extended stats
+        this.sessionStartTime = null;
+        this.wordEvents       = [];   // [{count, time}] for words/min rolling window
+        this._statsInterval   = null;
+
         this.initializeUI();
       }
 
@@ -697,70 +813,241 @@
           arrow.textContent = open ? '▲' : '▼';
         });
 
-        // Slider definitions:
-        //   sl      → DOM id suffix (sl_<sl>, val_<sl>)
-        //   lsKey   → localStorage key
-        //   get/set → read/write the live property
-        //   fmt     → display formatter
-        //   onExtra → optional side-effect after set (e.g. VAD update)
+        // === Slider definitions with full metadata for dynamic rendering ===
         this._sliderDefs = [
           {
-            sl: 'sttPause', lsKey: 'gp_sttPause', fmt: v => v + 'ms',
-            get: ()  => this.STT_PAUSE_MS,
-            set: v   => { this.STT_PAUSE_MS = v; }
+            section: 'Micro-chunking',
+            sl: 'sttPause', label: 'Pausa STT',
+            tip: 'Silenzio necessario per inviare il buffer al server',
+            min: 200, max: 1500, step: 50, minLabel: '200ms', maxLabel: '1.5s',
+            presets: { simultaneous: 450, balanced: 600, natural: 800 },
+            lsKey: 'gp_sttPause', fmt: v => v + 'ms',
+            get: () => this.STT_PAUSE_MS,
+            set: v => { this.STT_PAUSE_MS = v; }
           },
           {
-            sl: 'minChars', lsKey: 'gp_minChars', fmt: v => v + 'c',
-            get: ()  => this.MICRO_MIN_CHARS,
-            set: v   => { this.MICRO_MIN_CHARS = v; }
+            sl: 'minChars', label: 'Min chunk',
+            tip: 'Sotto questa soglia il testo attende più contenuto prima di inviare',
+            min: 10, max: 80, step: 5, minLabel: '10c', maxLabel: '80c',
+            presets: { simultaneous: 20, balanced: 35, natural: 50 },
+            lsKey: 'gp_minChars', fmt: v => v + 'c',
+            get: () => this.MICRO_MIN_CHARS,
+            set: v => { this.MICRO_MIN_CHARS = v; }
           },
           {
-            sl: 'maxChars', lsKey: 'gp_maxChars', fmt: v => v + 'c',
-            get: ()  => this.MICRO_MAX_CHARS,
-            set: v   => { this.MICRO_MAX_CHARS = v; }
+            sl: 'maxChars', label: 'Max chunk',
+            tip: 'Raggiunta questa soglia, il buffer viene inviato immediatamente',
+            min: 60, max: 300, step: 10, minLabel: '60c', maxLabel: '300c',
+            presets: { simultaneous: 100, balanced: 140, natural: 200 },
+            lsKey: 'gp_maxChars', fmt: v => v + 'c',
+            get: () => this.MICRO_MAX_CHARS,
+            set: v => { this.MICRO_MAX_CHARS = v; }
           },
           {
-            sl: 'flushMs', lsKey: 'gp_flushMs', fmt: v => v + 'ms',
-            get: ()  => this.MICRO_FLUSH_MS,
-            set: v   => { this.MICRO_FLUSH_MS = v; }
+            sl: 'flushMs', label: 'Flush timer',
+            tip: 'Timer di sicurezza: invia il buffer anche se non arriva nuovo testo',
+            min: 300, max: 2000, step: 50, minLabel: '300ms', maxLabel: '2s',
+            presets: { simultaneous: 650, balanced: 900, natural: 1400 },
+            lsKey: 'gp_flushMs', fmt: v => v + 'ms',
+            get: () => this.MICRO_FLUSH_MS,
+            set: v => { this.MICRO_FLUSH_MS = v; }
           },
           {
-            sl: 'gapMs', lsKey: 'gp_gapMs', fmt: v => v + 'ms',
-            get: ()  => this.MIN_SEND_GAP_MS,
-            set: v   => { this.MIN_SEND_GAP_MS = v; }
+            sl: 'gapMs', label: 'Gap invii',
+            tip: 'Intervallo minimo tra due POST consecutivi al server',
+            min: 100, max: 500, step: 25, minLabel: '100ms', maxLabel: '500ms',
+            presets: { simultaneous: 200, balanced: 280, natural: 350 },
+            lsKey: 'gp_gapMs', fmt: v => v + 'ms',
+            get: () => this.MIN_SEND_GAP_MS,
+            set: v => { this.MIN_SEND_GAP_MS = v; }
           },
           {
-            sl: 'vadThr', lsKey: 'gp_vadThr', fmt: v => v.toFixed(2),
-            get: ()  => this.vadThreshold,
-            set: v   => { this.vadThreshold = v; this._scheduleVADUpdate(); }
+            section: 'VAD OpenAI', vadSection: true,
+            sl: 'vadThr', label: 'Soglia VAD',
+            tip: 'Più bassa = più sensibile al rumore. Default: 0.45',
+            min: 0.10, max: 0.90, step: 0.05, minLabel: '0.10', maxLabel: '0.90',
+            presets: { simultaneous: 0.45, balanced: 0.45, natural: 0.45 },
+            lsKey: 'gp_vadThr', fmt: v => v.toFixed(2),
+            get: () => this.vadThreshold,
+            set: v => { this.vadThreshold = v; this._scheduleVADUpdate(); }
           },
           {
-            sl: 'silDur', lsKey: 'gp_silDur', fmt: v => v + 'ms',
-            get: ()  => this.silDurationMs,
-            set: v   => { this.silDurationMs = v; this._scheduleVADUpdate(); }
+            sl: 'silDur', label: 'Silenzio VAD',
+            tip: 'Quanto silenzio per considerare finita la frase. Default: 750ms',
+            min: 300, max: 2000, step: 50, minLabel: '300ms', maxLabel: '2s',
+            presets: { simultaneous: 750, balanced: 750, natural: 750 },
+            lsKey: 'gp_silDur', fmt: v => v + 'ms',
+            get: () => this.silDurationMs,
+            set: v => { this.silDurationMs = v; this._scheduleVADUpdate(); }
           },
           {
-            sl: 'ttsRate', lsKey: 'gp_ttsRate', fmt: v => v.toFixed(1) + 'x',
-            get: ()  => this.ttsRate,
-            set: v   => { this.ttsRate = v; this._sendTTSRate(v); }
+            section: 'Visitor TTS',
+            sl: 'ttsRate', label: 'Velocità TTS',
+            tip: 'Velocità di riproduzione sul dispositivo visitor (1.0 = normale)',
+            min: 0.5, max: 2.0, step: 0.1, minLabel: '0.5×', maxLabel: '2×',
+            presets: { simultaneous: 1.0, balanced: 1.0, natural: 1.0 },
+            lsKey: 'gp_ttsRate', fmt: v => v.toFixed(1) + 'x',
+            get: () => this.ttsRate,
+            set: v => { this.ttsRate = v; this._sendTTSRate(v); }
           }
         ];
 
-        this._sliderDefs.forEach(def => {
-          const input = document.getElementById(`sl_${def.sl}`);
-          const valEl = document.getElementById(`val_${def.sl}`);
-          if (!input) return;
+        // === Generate preset mini buttons ===
+        const miniContainer = document.getElementById('paramsMiniPresets');
+        [
+          { key: 'simultaneous', label: '⚡ Simultaneo' },
+          { key: 'balanced',     label: '⚖️ Equilibrato' },
+          { key: 'natural',      label: '🎯 Naturale' }
+        ].forEach(({ key, label }) => {
+          const btn = document.createElement('button');
+          btn.className = 'preset-mini';
+          btn.type = 'button';
+          btn.dataset.preset = key;
+          btn.textContent = label;
+          btn.addEventListener('click', () => this._resetToPresetKey(key));
+          miniContainer.appendChild(btn);
+        });
 
+        // === Generate slider rows dynamically ===
+        const slidersContainer = document.getElementById('paramsSliders');
+        this._sliderDefs.forEach(def => {
+          // Section header
+          if (def.section) {
+            const sec = document.createElement('div');
+            sec.className = 'params-section';
+            if (def.vadSection) {
+              sec.textContent = def.section + ' ';
+              const badge = document.createElement('span');
+              badge.className = 'vad-badge';
+              badge.id = 'vadBadge';
+              badge.textContent = '✓ inviato';
+              sec.appendChild(badge);
+            } else {
+              sec.textContent = def.section;
+            }
+            slidersContainer.appendChild(sec);
+          }
+
+          const row = document.createElement('div');
+          row.className = 'param-row';
+
+          // Header: label + tip button + value
+          const header = document.createElement('div');
+          header.className = 'param-header';
+
+          const labelSpan = document.createElement('span');
+          labelSpan.className = 'param-label-text';
+          labelSpan.textContent = def.label;
+
+          const tipBtn = document.createElement('button');
+          tipBtn.className = 'tip-btn';
+          tipBtn.type = 'button';
+          tipBtn.setAttribute('aria-label', 'info');
+          tipBtn.tabIndex = -1;
+          tipBtn.textContent = '?';
+          tipBtn.addEventListener('click', () => {
+            const tip = document.getElementById(`tip_${def.sl}`);
+            if (!tip) return;
+            const wasHidden = tip.hidden;
+            this._sliderDefs.forEach(d => {
+              const t = document.getElementById(`tip_${d.sl}`);
+              if (t) t.hidden = true;
+            });
+            tip.hidden = !wasHidden;
+          });
+
+          const valEl = document.createElement('span');
+          valEl.className = 'param-value';
+          valEl.id = `val_${def.sl}`;
+          valEl.textContent = '--';
+
+          header.appendChild(labelSpan);
+          header.appendChild(tipBtn);
+          header.appendChild(valEl);
+
+          // Track: min label + slider + max label
+          const track = document.createElement('div');
+          track.className = 'param-track';
+
+          const minLbl = document.createElement('span');
+          minLbl.className = 'param-edge';
+          minLbl.textContent = def.minLabel;
+
+          const input = document.createElement('input');
+          input.type = 'range';
+          input.className = 'param-slider';
+          input.id = `sl_${def.sl}`;
+          input.min = def.min;
+          input.max = def.max;
+          input.step = def.step;
+
+          const maxLbl = document.createElement('span');
+          maxLbl.className = 'param-edge';
+          maxLbl.textContent = def.maxLabel;
+
+          track.appendChild(minLbl);
+          track.appendChild(input);
+          track.appendChild(maxLbl);
+
+          // Preset ruler (tick marks)
+          const ruler = document.createElement('div');
+          ruler.className = 'preset-ruler';
+          const range = def.max - def.min;
+          const allSame = def.presets.simultaneous === def.presets.balanced &&
+                          def.presets.balanced === def.presets.natural;
+          if (allSame) {
+            const pct = ((def.presets.simultaneous - def.min) / range * 100).toFixed(1);
+            const dot = document.createElement('span');
+            dot.className = 'preset-dot s';
+            dot.style.left = pct + '%';
+            dot.textContent = 'D';
+            ruler.appendChild(dot);
+          } else {
+            [
+              { cls: 's', val: def.presets.simultaneous },
+              { cls: 'e', val: def.presets.balanced },
+              { cls: 'n', val: def.presets.natural }
+            ].forEach(({ cls, val }) => {
+              const pct = ((val - def.min) / range * 100).toFixed(1);
+              const dot = document.createElement('span');
+              dot.className = `preset-dot ${cls}`;
+              dot.style.left = pct + '%';
+              dot.textContent = cls.toUpperCase();
+              ruler.appendChild(dot);
+            });
+          }
+
+          // Tooltip
+          const tip = document.createElement('div');
+          tip.className = 'param-tip';
+          tip.id = `tip_${def.sl}`;
+          tip.hidden = true;
+          tip.textContent = def.tip;
+
+          row.appendChild(header);
+          row.appendChild(track);
+          row.appendChild(ruler);
+          row.appendChild(tip);
+          slidersContainer.appendChild(row);
+
+          // Wire up input event
           input.addEventListener('input', () => {
             const v = parseFloat(input.value);
             valEl.textContent = def.fmt(v);
             def.set(v);
             localStorage.setItem(def.lsKey, v);
+            this._checkPresetStatus();
           });
         });
 
+        // Reset button
         document.getElementById('paramsReset').addEventListener('click', () => {
           this._resetToPreset();
+        });
+
+        // Export log button
+        document.getElementById('exportLogBtn').addEventListener('click', () => {
+          window.open('/session-log/csv', '_blank');
         });
       }
 
@@ -774,6 +1061,7 @@
           input.value = v;
           valEl.textContent = def.fmt(v);
         });
+        this._checkPresetStatus();
       }
 
       // Load any localStorage overrides on top of the preset values
@@ -788,9 +1076,32 @@
         this._syncSliders();
       }
 
-      // Reset all params to the currently selected preset defaults
-      _resetToPreset() {
-        const preset = PRESETS[this.currentPreset] || PRESETS.simultaneous;
+      // Update the preset badge and mini-button active state
+      _checkPresetStatus() {
+        const badge = document.getElementById('presetBadge');
+        // Update mini-button active states
+        document.querySelectorAll('.preset-mini').forEach(btn => btn.classList.remove('active'));
+        for (const [key, p] of Object.entries(PRESETS)) {
+          if (
+            this.STT_PAUSE_MS    === p.STT_PAUSE_MS    &&
+            this.MICRO_MIN_CHARS === p.MICRO_MIN_CHARS  &&
+            this.MICRO_MAX_CHARS === p.MICRO_MAX_CHARS  &&
+            this.MICRO_FLUSH_MS  === p.MICRO_FLUSH_MS   &&
+            this.MIN_SEND_GAP_MS === p.MIN_SEND_GAP_MS
+          ) {
+            if (badge) { badge.textContent = p.name; badge.className = 'preset-status-badge matched'; }
+            const activeBtn = document.querySelector(`.preset-mini[data-preset="${key}"]`);
+            if (activeBtn) activeBtn.classList.add('active');
+            return;
+          }
+        }
+        if (badge) { badge.textContent = 'Personalizzato'; badge.className = 'preset-status-badge custom'; }
+      }
+
+      // Full reset to a specific preset key (micro-chunking + VAD + TTS)
+      _resetToPresetKey(key) {
+        const preset = PRESETS[key] || PRESETS.simultaneous;
+        this.currentPreset   = key;
         this.STT_PAUSE_MS    = preset.STT_PAUSE_MS;
         this.MICRO_MIN_CHARS = preset.MICRO_MIN_CHARS;
         this.MICRO_MAX_CHARS = preset.MICRO_MAX_CHARS;
@@ -799,10 +1110,19 @@
         this.vadThreshold    = VAD_DEFAULTS.threshold;
         this.silDurationMs   = VAD_DEFAULTS.silenceDurationMs;
         this.ttsRate         = 1.0;
-        // Clear persisted overrides
+        // Re-enable VAD sliders in case they were disabled
+        ['sl_vadThr', 'sl_silDur'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.disabled = false;
+        });
         this._sliderDefs?.forEach(def => localStorage.removeItem(def.lsKey));
         this._syncSliders();
-        if (this.isRunning) this.sendVADUpdate();
+        if (this.isRunning) { this.sendVADUpdate(); this._sendTTSRate(this.ttsRate); }
+      }
+
+      // Reset all params to the currently selected preset defaults
+      _resetToPreset() {
+        this._resetToPresetKey(this.currentPreset);
       }
 
       // Debounced VAD update (avoids spamming session.update while dragging)
@@ -814,32 +1134,86 @@
         }, 300);
       }
 
-      // Send session.update to OpenAI to change VAD params without restarting
+      // Send session.update to OpenAI to change VAD params without restarting.
+      // Tries SDK transport.sendEvent() first, falls back to raw dataChannel.
       sendVADUpdate() {
         const transport = this.session?.transport;
         if (!transport) return;
-        try {
-          transport.sendEvent({
-            type: 'session.update',
-            session: {
-              turn_detection: {
-                type: 'server_vad',
-                threshold: Math.round(this.vadThreshold * 100) / 100,
-                silence_duration_ms: Math.round(this.silDurationMs)
-              }
+
+        const payload = {
+          type: 'session.update',
+          session: {
+            turn_detection: {
+              type: 'server_vad',
+              threshold: Math.round(this.vadThreshold * 100) / 100,
+              silence_duration_ms: Math.round(this.silDurationMs)
             }
-          });
-          // Show brief confirmation badge
+          }
+        };
+
+        let sent = false;
+
+        // Try 1: SDK transport.sendEvent()
+        try {
+          transport.sendEvent(payload);
+          sent = true;
+          console.log('[Guide] VAD updated via transport.sendEvent()');
+        } catch (e) {
+          console.warn('[Guide] transport.sendEvent() failed:', e.message);
+        }
+
+        // Try 2: direct WebRTC dataChannel
+        if (!sent) {
+          const dc = transport._dc || transport.dataChannel || transport._dataChannel;
+          if (dc?.readyState === 'open') {
+            try {
+              dc.send(JSON.stringify(payload));
+              sent = true;
+              console.log('[Guide] VAD updated via dataChannel.send()');
+            } catch (e) {
+              console.warn('[Guide] dataChannel.send() failed:', e.message);
+            }
+          }
+        }
+
+        if (!sent) {
+          this._disableVADSliders();
+          return;
+        }
+
+        // Arm 2-second ack timeout — expect session.updated event in response
+        this._pendingVADUpdate = true;
+        if (this._vadAckTimeout) clearTimeout(this._vadAckTimeout);
+        this._vadAckTimeout = setTimeout(() => {
+          if (!this._pendingVADUpdate) return;
+          console.warn('[Guide] session.updated not received within 2s');
           const badge = document.getElementById('vadBadge');
           if (badge) {
+            badge.textContent = '⚠️ no ack';
             badge.classList.add('visible');
-            setTimeout(() => badge.classList.remove('visible'), 2000);
+            setTimeout(() => {
+              badge.classList.remove('visible');
+              badge.textContent = '✓ inviato';
+            }, 3000);
           }
-          console.log('[Guide] VAD updated: threshold=', this.vadThreshold,
-            'silence_duration_ms=', this.silDurationMs);
-        } catch (e) {
-          console.warn('[Guide] VAD session.update failed:', e.message);
+        }, 2000);
+
+        // Show confirmation badge immediately
+        const badge = document.getElementById('vadBadge');
+        if (badge) {
+          badge.classList.add('visible');
+          setTimeout(() => badge.classList.remove('visible'), 2000);
         }
+      }
+
+      _disableVADSliders() {
+        ['sl_vadThr', 'sl_silDur'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.disabled = true;
+        });
+        const badge = document.getElementById('vadBadge');
+        if (badge) { badge.textContent = '⚠️ n/d'; badge.classList.add('visible'); }
+        console.warn('[Guide] VAD parameters cannot be modified during active session');
       }
 
       // Push TTS rate to visitor(s) via server broadcast
@@ -850,6 +1224,37 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lang: this.targetLanguage, ttsRate: rate })
         }).catch(e => console.warn('[Guide] TTS rate push failed:', e.message));
+      }
+
+      // ==========================================
+      // EXTENDED STATS
+      // ==========================================
+
+      _startExtStats() {
+        this._statsInterval = setInterval(() => {
+          const bufEl = document.getElementById('bufferLen');
+          const wpmEl = document.getElementById('wordsPerMin');
+          const timerEl = document.getElementById('sessionTimer');
+          if (!bufEl || !wpmEl || !timerEl) return;
+
+          // Buffer length
+          bufEl.textContent = (this.microBuffer?.length || 0) + 'c';
+
+          // Words/min (rolling last 60s)
+          const now = Date.now();
+          this.wordEvents = (this.wordEvents || []).filter(e => now - e.time < 60000);
+          const totalWords = this.wordEvents.reduce((s, e) => s + e.count, 0);
+          const elapsedMin = (now - this.sessionStartTime) / 60000;
+          wpmEl.textContent = elapsedMin > 0.05
+            ? Math.round(totalWords / Math.max(elapsedMin, 1))
+            : '—';
+
+          // Session timer mm:ss
+          const secs = Math.floor((now - this.sessionStartTime) / 1000);
+          const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+          const ss = String(secs % 60).padStart(2, '0');
+          timerEl.textContent = `${mm}:${ss}`;
+        }, 500);
       }
 
       // ==========================================
@@ -945,6 +1350,19 @@
           this.activeSession.classList.remove('hidden');
           this.isRunning = true;
 
+          // Re-enable VAD sliders (may have been disabled by _disableVADSliders in previous session)
+          ['sl_vadThr', 'sl_silDur'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = false;
+          });
+          const vadBadgeEl = document.getElementById('vadBadge');
+          if (vadBadgeEl) { vadBadgeEl.textContent = '✓ inviato'; vadBadgeEl.classList.remove('visible'); }
+
+          // Start extended stats (buffer, words/min, session timer)
+          this.sessionStartTime = Date.now();
+          this.wordEvents = [];
+          this._startExtStats();
+
           await this.requestWakeLock();
 
           this.lastSttActivityTime = Date.now();
@@ -969,7 +1387,10 @@
         this.isRunning = false;
         console.log('[Guide] Stopping session...');
 
-        if (this._vadTimer) { clearTimeout(this._vadTimer); this._vadTimer = null; }
+        if (this._vadTimer)      { clearTimeout(this._vadTimer);      this._vadTimer      = null; }
+        if (this._vadAckTimeout) { clearTimeout(this._vadAckTimeout); this._vadAckTimeout = null; }
+        this._pendingVADUpdate = false;
+        if (this._statsInterval) { clearInterval(this._statsInterval); this._statsInterval = null; }
         if (this.microFlushTimer)   { clearTimeout(this.microFlushTimer);   this.microFlushTimer = null; }
         if (this.speechStoppedTimer){ clearTimeout(this.speechStoppedTimer); this.speechStoppedTimer = null; }
         if (this.sttPauseInterval)  { clearInterval(this.sttPauseInterval); this.sttPauseInterval = null; }
@@ -1077,6 +1498,13 @@
               break;
             }
 
+            case 'session.updated':
+              // VAD session.update was acknowledged by the server
+              this._pendingVADUpdate = false;
+              if (this._vadAckTimeout) { clearTimeout(this._vadAckTimeout); this._vadAckTimeout = null; }
+              console.log('[Guide] ✅ session.updated ack received');
+              break;
+
             case 'error':
               console.error('[Guide] ❌ Error:', event.error);
               break;
@@ -1179,6 +1607,11 @@
 
             this.chunksSent++;
             this.chunksSentEl.textContent = this.chunksSent;
+
+            // Track word count for words/min stat
+            const wordCount = sourceText.trim().split(/\s+/).filter(Boolean).length;
+            this.wordEvents = (this.wordEvents || []);
+            this.wordEvents.push({ count: wordCount, time: Date.now() });
 
             this.updateReceiverStatus(result.hasReceiver ? (result.accepted ? 'ok' : 'mismatch') : 'offline');
 
