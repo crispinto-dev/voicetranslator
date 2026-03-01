@@ -720,8 +720,10 @@
         this.lastSentText = '';
         this.lastSentAt = 0;
 
-        // Anti-burst
+        // Anti-burst / FIFO send queue
         this.lastSendAt = 0;
+        this._sendQueue = [];
+        this._sendProcessing = false;
 
         // Wake lock
         this.wakeLock = null;
@@ -1550,12 +1552,11 @@
         }
 
         const chunks = this.splitIntoMicroChunks(buf);
-        if (chunks.length === 0) {
-          this.sendSourceText(buf);
-        } else {
-          for (const c of chunks) {
-            if (c.length >= 1) this.sendSourceText(c);
-          }
+        const toSend = chunks.length === 0 ? [buf] : chunks.filter(c => c.length >= 1);
+        // Pre-assign sequence numbers NOW, before any async/timeout, to guarantee strict ordering
+        const numberedChunks = toSend.map(text => ({ text, seq: ++this.sequenceNumber }));
+        for (const nc of numberedChunks) {
+          this.sendSourceText(nc.text, nc.seq);
         }
 
         this.microBuffer = '';
@@ -1565,73 +1566,96 @@
         console.log(`[Guide] Micro flush (${reason}): ${chunks.length} chunk(s)`);
       }
 
-      async sendSourceText(sourceText) {
+      sendSourceText(sourceText, preAssignedSeq = null) {
         if (!sourceText) return;
 
-        try {
-          const now = Date.now();
+        const normalized = sourceText.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (normalized && normalized === this.lastSentText && (Date.now() - this.lastSentAt) < 2500) {
+          console.log('[Guide] Dedup skip:', sourceText.substring(0, 30) + '...');
+          return;
+        }
 
-          const gap = now - this.lastSendAt;
+        const seq = preAssignedSeq ?? ++this.sequenceNumber;
+        this._sendQueue.push({ sourceText, seq, ts: Date.now() });
+        this._processSendQueue();
+      }
+
+      async _processSendQueue() {
+        if (this._sendProcessing || this._sendQueue.length === 0) return;
+        this._sendProcessing = true;
+
+        while (this._sendQueue.length > 0) {
+          const { sourceText, seq, ts } = this._sendQueue.shift();
+
+          // Anti-burst: wait if needed before sending
+          const gap = Date.now() - this.lastSendAt;
           if (gap < this.MIN_SEND_GAP_MS) {
-            setTimeout(() => this.sendSourceText(sourceText), this.MIN_SEND_GAP_MS - gap);
-            return;
+            await new Promise(r => setTimeout(r, this.MIN_SEND_GAP_MS - gap));
           }
 
+          const now = Date.now();
           const normalized = sourceText.replace(/\s+/g, ' ').trim().toLowerCase();
+          // Re-check dedup at send time in case a duplicate slipped through
           if (normalized && normalized === this.lastSentText && (now - this.lastSentAt) < 2500) {
-            console.log('[Guide] Dedup skip:', sourceText.substring(0, 30) + '...');
-            return;
+            console.log('[Guide] Dedup skip (queue):', sourceText.substring(0, 30) + '...');
+            continue;
           }
+
           this.lastSentText = normalized;
+          this.lastSentAt   = now;
           this.lastSendAt   = now;
 
           const chunk = {
             lang: this.targetLanguage,
             sourceLang: 'it',
             sourceText,
-            ts: now,
-            seq: ++this.sequenceNumber
+            ts,
+            seq
           };
 
           console.log(`[Guide] Sending chunk #${chunk.seq} → ${chunk.lang}:`, sourceText);
 
-          const sentAt = Date.now();
-          const result = await this.sendWithRetry(chunk);
+          try {
+            const sentAt = Date.now();
+            const result = await this.sendWithRetry(chunk);
 
-          if (result) {
-            const latency = Date.now() - sentAt;
-            this.chunkLatencies.push(latency);
-            if (this.chunkLatencies.length > 5) this.chunkLatencies.shift();
-            const avg = this.chunkLatencies.reduce((a, b) => a + b, 0) / this.chunkLatencies.length;
-            this.latencyDisplayEl.textContent = `~${(avg / 1000).toFixed(1)}s`;
+            if (result) {
+              const latency = Date.now() - sentAt;
+              this.chunkLatencies.push(latency);
+              if (this.chunkLatencies.length > 5) this.chunkLatencies.shift();
+              const avg = this.chunkLatencies.reduce((a, b) => a + b, 0) / this.chunkLatencies.length;
+              this.latencyDisplayEl.textContent = `~${(avg / 1000).toFixed(1)}s`;
 
-            this.chunksSent++;
-            this.chunksSentEl.textContent = this.chunksSent;
+              this.chunksSent++;
+              this.chunksSentEl.textContent = this.chunksSent;
 
-            // Track word count for words/min stat
-            const wordCount = sourceText.trim().split(/\s+/).filter(Boolean).length;
-            this.wordEvents = (this.wordEvents || []);
-            this.wordEvents.push({ count: wordCount, time: Date.now() });
+              // Track word count for words/min stat
+              const wordCount = sourceText.trim().split(/\s+/).filter(Boolean).length;
+              this.wordEvents = (this.wordEvents || []);
+              this.wordEvents.push({ count: wordCount, time: Date.now() });
 
-            this.updateReceiverStatus(result.hasReceiver ? (result.accepted ? 'ok' : 'mismatch') : 'offline');
+              this.updateReceiverStatus(result.hasReceiver ? (result.accepted ? 'ok' : 'mismatch') : 'offline');
 
-            if (result.suggestedPreset && result.suggestedPreset !== this.currentPreset) {
-              console.log(`[Guide] Visitor suggests preset: ${result.suggestedPreset}`);
-              this.applyPreset(result.suggestedPreset);
-              this._syncSliders();
-              const radio = document.querySelector(`input[name="preset"][value="${result.suggestedPreset}"]`);
-              if (radio) radio.checked = true;
+              if (result.suggestedPreset && result.suggestedPreset !== this.currentPreset) {
+                console.log(`[Guide] Visitor suggests preset: ${result.suggestedPreset}`);
+                this.applyPreset(result.suggestedPreset);
+                this._syncSliders();
+                const radio = document.querySelector(`input[name="preset"][value="${result.suggestedPreset}"]`);
+                if (radio) radio.checked = true;
+              }
+
+              this.addToTranscript(sourceText);
+              console.log(`[Guide] Sent. latency=${latency}ms hasReceiver=${result.hasReceiver}`);
+            } else {
+              this.updateReceiverStatus('error');
             }
-
-            this.addToTranscript(sourceText);
-            console.log(`[Guide] Sent. latency=${latency}ms hasReceiver=${result.hasReceiver}`);
-          } else {
+          } catch (err) {
+            console.error('[Guide] sendSourceText error:', err);
             this.updateReceiverStatus('error');
           }
-        } catch (err) {
-          console.error('[Guide] sendSourceText error:', err);
-          this.updateReceiverStatus('error');
         }
+
+        this._sendProcessing = false;
       }
 
       updateReceiverStatus(status) {

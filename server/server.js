@@ -413,8 +413,9 @@ app.post('/preset-suggest', (req, res) => {
 // ==========================================
 
 // Per-language state
-const pendingByLang = new Map();   // lang → { texts[], ts, seq, maxTimer }
-const timerByLang   = new Map();   // lang → debounce timeoutId
+const pendingByLang        = new Map();   // lang → { texts[], ts, seq, maxTimer }
+const timerByLang          = new Map();   // lang → debounce timeoutId
+const translationInProgress = new Map();  // lang → Promise (serializes translations per lang)
 
 // 50ms window just to coalesce bursts from network jitter.
 // The guide already does micro-chunking, so a large debounce is redundant.
@@ -435,33 +436,44 @@ async function flushLang(lk) {
   const combinedText = batch.texts.join(' ');
   console.log(`[Ingest] Translating ${batch.texts.length} chunk(s) → ${lk}: "${combinedText.substring(0, 80)}"`);
 
-  const flushStartMs = Date.now();
-  try {
-    const translated = await translateText({ sourceText: combinedText, targetLang: lk });
-    const latencyMs = Date.now() - flushStartMs;
-    console.log(`[Ingest] → "${translated.substring(0, 80)}" (${latencyMs}ms)`);
-    totalChunksTranslated++;
+  // Serialize: wait for any in-progress translation for this language before starting a new one.
+  // This prevents a shorter chunk from overtaking a longer one and arriving out of order.
+  const prev = translationInProgress.get(lk);
+  if (prev) await prev.catch(() => {});
 
-    // Persist to session log
-    sessionLog.push({
-      timestamp: new Date().toISOString(),
-      seq: batch.seq,
-      lang: lk,
-      sourceText: combinedText,
-      translatedText: translated,
-      latencyMs
-    });
-    if (sessionLog.length > 1000) sessionLog.shift();
+  const translationPromise = (async () => {
+    const flushStartMs = Date.now();
+    try {
+      const translated = await translateText({ sourceText: combinedText, targetLang: lk });
+      const latencyMs = Date.now() - flushStartMs;
+      console.log(`[Ingest] → "${translated.substring(0, 80)}" (${latencyMs}ms)`);
+      totalChunksTranslated++;
 
-    const sent = broadcastToLang(lk, {
-      id: ++globalEventId,
-      event: 'chunk',
-      data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq }
-    });
-    console.log(`[Ingest] Broadcast to ${sent} client(s) (${lk})`);
-  } catch (e) {
-    console.error('[Ingest] Translation error:', e.message);
-  }
+      // Persist to session log
+      sessionLog.push({
+        timestamp: new Date().toISOString(),
+        seq: batch.seq,
+        lang: lk,
+        sourceText: combinedText,
+        translatedText: translated,
+        latencyMs
+      });
+      if (sessionLog.length > 1000) sessionLog.shift();
+
+      const sent = broadcastToLang(lk, {
+        id: ++globalEventId,
+        event: 'chunk',
+        data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq }
+      });
+      console.log(`[Ingest] Broadcast to ${sent} client(s) (${lk})`);
+    } catch (e) {
+      console.error('[Ingest] Translation error:', e.message);
+    }
+  })();
+
+  translationInProgress.set(lk, translationPromise);
+  await translationPromise.catch(() => {});
+  translationInProgress.delete(lk);
 }
 
 // Ingest: receives source text chunks from the guide device
