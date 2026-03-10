@@ -373,6 +373,10 @@
           <input type="range" class="param-slider" id="slTtsPitch" min="0.5" max="2.0" step="0.1" value="1.0">
           <span class="param-value" id="valTtsPitch">1.0x</span>
         </div>
+        <div class="param-row" style="flex-direction:column; align-items:flex-start; gap:6px;">
+          <span class="param-label">Voce</span>
+          <select id="selVoice" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #d1d5db; font-size:13px; background:#f9fafb;"></select>
+        </div>
       </div>
     </div>
 
@@ -471,6 +475,7 @@
     const valTtsRate   = document.getElementById('valTtsRate');
     const slTtsPitch   = document.getElementById('slTtsPitch');
     const valTtsPitch  = document.getElementById('valTtsPitch');
+    const selVoice     = document.getElementById('selVoice');
 
     // Restore slider positions from localStorage
     slTtsRate.value  = ttsRate;
@@ -493,6 +498,37 @@
       ttsPitch = parseFloat(slTtsPitch.value);
       valTtsPitch.textContent = ttsPitch.toFixed(1) + 'x';
       localStorage.setItem('vp_ttsPitch', ttsPitch);
+    };
+
+    // Populate voice selector with voices available for the current language
+    function populateVoiceList(lang) {
+      const voices = window.speechSynthesis.getVoices() || [];
+      const matching = voices.filter(v => (v.lang || '').toLowerCase().startsWith(lang));
+      if (matching.length === 0) return;
+
+      const savedName = localStorage.getItem('vp_voiceName');
+      selVoice.innerHTML = '';
+      matching.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.name;
+        opt.textContent = `${v.name} (${v.lang})${v.localService ? '' : ' ☁️'}`;
+        if (v.name === savedName) opt.selected = true;
+        selVoice.appendChild(opt);
+      });
+
+      // Apply saved or first voice
+      const chosen = matching.find(v => v.name === savedName) || matching[0];
+      if (chosen) preferredVoice = chosen;
+    }
+
+    selVoice.onchange = () => {
+      const voices = window.speechSynthesis.getVoices() || [];
+      const chosen = voices.find(v => v.name === selVoice.value);
+      if (chosen) {
+        preferredVoice = chosen;
+        localStorage.setItem('vp_voiceName', chosen.name);
+        console.log('[Visitor] Voice changed to:', chosen.name, chosen.lang);
+      }
     };
 
     // ---- Wake Lock ----
@@ -674,7 +710,11 @@
     async function warmupTTS(lang) {
       return new Promise((resolve) => {
         const tryPick = () => {
-          preferredVoice = pickVoice(lang);
+          // If user already picked a voice manually, don't override it
+          if (!localStorage.getItem('vp_voiceName')) {
+            preferredVoice = pickVoice(lang);
+          }
+          populateVoiceList(lang);
           console.log('[Visitor] Selected voice:', preferredVoice?.name || 'default', preferredVoice?.lang || lang);
           resolve();
         };
