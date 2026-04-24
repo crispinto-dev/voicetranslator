@@ -7,6 +7,8 @@ import express from 'express';
 import { createServer } from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +28,52 @@ const staticDir = process.env.NODE_ENV === 'production'
 
 console.log(`Serving static files from: ${staticDir}`);
 app.use(express.static(staticDir));
+
+// ==========================================
+// OPENAI TTS — server-side audio generation
+// ==========================================
+
+const audioTtsDir = path.join(__dirname, '../tmp-audio-tts');
+if (!fs.existsSync(audioTtsDir)) fs.mkdirSync(audioTtsDir, { recursive: true });
+
+app.use('/audio-tts', express.static(audioTtsDir));
+
+// Delete MP3 files older than 10 minutes every 2 minutes
+setInterval(() => {
+  const cutoff = Date.now() - 600_000;
+  try {
+    for (const file of fs.readdirSync(audioTtsDir)) {
+      const fp = path.join(audioTtsDir, file);
+      if (fs.statSync(fp).mtimeMs < cutoff) {
+        fs.unlinkSync(fp);
+        console.log('[TTS] Deleted old audio file:', file);
+      }
+    }
+  } catch (e) {
+    console.error('[TTS] Cleanup error:', e.message);
+  }
+}, 120_000);
+
+async function generateTTSAudio(text, speed = 1.0) {
+  const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'tts-1',
+      input: text,
+      voice: 'nova',
+      speed: Math.min(4.0, Math.max(0.25, speed)),
+      response_format: 'mp3'
+    })
+  });
+  if (!response.ok) throw new Error(`TTS API error: ${response.status} ${await response.text()}`);
+  const filename = `tts-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.mp3`;
+  fs.writeFileSync(path.join(audioTtsDir, filename), Buffer.from(await response.arrayBuffer()));
+  return `/audio-tts/${filename}`;
+}
 
 // ==========================================
 // RATE LIMITER (no external dependencies)
@@ -460,10 +508,20 @@ async function flushLang(lk) {
       });
       if (sessionLog.length > 1000) sessionLog.shift();
 
+      // Generate TTS audio — best-effort; visitor falls back to speechSynthesis on failure
+      let audioUrl = null;
+      try {
+        const speed = visitorSettings.get(lk)?.ttsRate ?? 1.0;
+        audioUrl = await generateTTSAudio(translated, speed);
+        console.log(`[TTS] Generated: ${audioUrl} (speed ${speed})`);
+      } catch (ttsErr) {
+        console.warn('[TTS] Audio generation failed, visitor will use speechSynthesis:', ttsErr.message);
+      }
+
       const sent = broadcastToLang(lk, {
         id: ++globalEventId,
         event: 'chunk',
-        data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq }
+        data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq, audioUrl }
       });
       console.log(`[Ingest] Broadcast to ${sent} client(s) (${lk})`);
     } catch (e) {

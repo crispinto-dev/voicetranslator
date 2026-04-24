@@ -425,8 +425,9 @@
 
   <script>
     let es = null;
-    let queue = [];        // Array of { text, ts }
+    let queue = [];        // Array of { text, ts, audioUrl }
     let speaking = false;
+    let currentAudio = null;   // Currently playing Audio element (OpenAI TTS)
     let preferredVoice = null;
     let chunksReceived = 0;
     let speakingStartedAt = 0;
@@ -492,6 +493,14 @@
       ttsRate = parseFloat(slTtsRate.value);
       valTtsRate.textContent = ttsRate.toFixed(1) + 'x';
       localStorage.setItem('vp_ttsRate', ttsRate);
+      // Notify server so future OpenAI TTS chunks use the updated speed
+      if (es) {
+        fetch('/visitor-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang: currentLang, ttsRate })
+        }).catch(() => {});
+      }
     };
 
     slTtsPitch.oninput = () => {
@@ -616,7 +625,7 @@
     // ==========================================
 
     function processChunk(data) {
-      const { text, seq, ts } = data;
+      const { text, seq, ts, audioUrl } = data;
 
       if (seq <= lastProcessedSeq) {
         console.log('[Visitor] Chunk duplicato scartato:', seq);
@@ -624,11 +633,11 @@
       }
 
       if (seq === lastProcessedSeq + 1) {
-        enqueueAndSpeak(text, ts, currentLang);
+        enqueueAndSpeak(text, ts, currentLang, audioUrl);
         lastProcessedSeq = seq;
         processPendingInOrder();
       } else {
-        pendingChunks.set(seq, { text, ts, receivedAt: Date.now() });
+        pendingChunks.set(seq, { text, ts, audioUrl, receivedAt: Date.now() });
         console.log(`[Visitor] Chunk #${seq} fuori ordine, in attesa (ultimo: ${lastProcessedSeq})`);
         scheduleProcessPending();
       }
@@ -642,7 +651,7 @@
         if (pendingChunks.has(nextExpected)) {
           const chunk = pendingChunks.get(nextExpected);
           pendingChunks.delete(nextExpected);
-          enqueueAndSpeak(chunk.text, chunk.ts, currentLang);
+          enqueueAndSpeak(chunk.text, chunk.ts, currentLang, chunk.audioUrl);
           lastProcessedSeq = nextExpected;
           if (pendingChunks.size > 0) scheduleProcessPending();
         } else if (pendingChunks.size > 0) {
@@ -660,7 +669,7 @@
       while (pendingChunks.has(lastProcessedSeq + 1)) {
         const chunk = pendingChunks.get(lastProcessedSeq + 1);
         pendingChunks.delete(lastProcessedSeq + 1);
-        enqueueAndSpeak(chunk.text, chunk.ts, currentLang);
+        enqueueAndSpeak(chunk.text, chunk.ts, currentLang, chunk.audioUrl);
         lastProcessedSeq++;
       }
     }
@@ -727,22 +736,29 @@
     // TTS ENGINE
     // ==========================================
 
-    function speakNext(lang) {
-      if (speaking || queue.length === 0) {
-        updateStats();
-        return;
-      }
-
-      const item = queue.shift();
-      const text    = item.text;
-      const chunkTs = item.ts;
-
+    function _speakSynthesis(text, lang, onEnd, onError) {
       const u = new SpeechSynthesisUtterance(text);
       if (preferredVoice) u.voice = preferredVoice;
       u.lang   = preferredVoice?.lang || lang;
       u.rate   = ttsRate;
       u.pitch  = ttsPitch;
       u.volume = 1.0;
+      u.onend  = onEnd;
+      u.onerror = onError;
+      console.log('[Visitor] Speaking (speechSynthesis):', text.substring(0, 50));
+      window.speechSynthesis.speak(u);
+    }
+
+    function speakNext(lang) {
+      if (speaking || queue.length === 0) {
+        updateStats();
+        return;
+      }
+
+      const item     = queue.shift();
+      const text     = item.text;
+      const chunkTs  = item.ts;
+      const audioUrl = item.audioUrl;
 
       speaking = true;
       speakingStartedAt = Date.now();
@@ -759,10 +775,29 @@
       showSubtitle(text);
       updateStats();
 
-      // Clear any previous watchdog
       if (ttsWatchdog) clearInterval(ttsWatchdog);
 
-      // Watchdog: cancel stalled TTS only when there's a queue backlog
+      const onPlayEnd = () => {
+        speaking = false;
+        currentAudio = null;
+        if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
+        hideSubtitle();
+        setTimeout(() => {
+          if (queue.length > 0) speakNext(lang);
+          else setStatus('connected', '🟢 Connesso - In ascolto');
+        }, 100);
+      };
+
+      const onPlayError = (e) => {
+        console.error('[Visitor] TTS error:', e);
+        speaking = false;
+        currentAudio = null;
+        if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
+        hideSubtitle();
+        setTimeout(() => speakNext(lang), 100);
+      };
+
+      // Watchdog: force recovery only when there's a queue backlog
       const watchdogMs = getWatchdogTimeout(text);
       ttsWatchdog = setInterval(() => {
         if (!speaking) { clearInterval(ttsWatchdog); ttsWatchdog = null; return; }
@@ -771,45 +806,41 @@
           console.warn(`[Visitor] TTS watchdog: elapsed ${elapsed}ms, backlog ${queue.length}, forcing recovery`);
           clearInterval(ttsWatchdog);
           ttsWatchdog = null;
-          window.speechSynthesis.cancel();
+          if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+          else window.speechSynthesis.cancel();
           speaking = false;
           hideSubtitle();
           speakNext(lang);
         }
       }, 1000);
 
-      u.onend = () => {
-        speaking = false;
-        if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
-        hideSubtitle();
-        setTimeout(() => {
-          if (queue.length > 0) {
-            speakNext(lang);
-          } else {
-            setStatus('connected', '🟢 Connesso - In ascolto');
-          }
-        }, 100);
-      };
-
-      u.onerror = (e) => {
-        console.error('[Visitor] TTS error:', e);
-        speaking = false;
-        if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
-        hideSubtitle();
-        setTimeout(() => speakNext(lang), 100);
-      };
-
-      console.log('[Visitor] Speaking:', text.substring(0, 50) + '...');
-      window.speechSynthesis.speak(u);
+      if (audioUrl) {
+        const audio = new Audio(audioUrl);
+        currentAudio = audio;
+        audio.onended = onPlayEnd;
+        audio.onerror = () => {
+          console.warn('[Visitor] Audio element error, falling back to speechSynthesis');
+          currentAudio = null;
+          _speakSynthesis(text, lang, onPlayEnd, onPlayError);
+        };
+        audio.play().catch(() => {
+          console.warn('[Visitor] audio.play() rejected, falling back to speechSynthesis');
+          currentAudio = null;
+          _speakSynthesis(text, lang, onPlayEnd, onPlayError);
+        });
+        console.log('[Visitor] Playing OpenAI TTS:', text.substring(0, 50));
+      } else {
+        _speakSynthesis(text, lang, onPlayEnd, onPlayError);
+      }
     }
 
-    function enqueueAndSpeak(text, ts, lang) {
+    function enqueueAndSpeak(text, ts, lang, audioUrl) {
       const cleaned = text.trim();
       if (!cleaned) return;
 
-      queue.push({ text: cleaned, ts });
+      queue.push({ text: cleaned, ts, audioUrl });
 
-      // If queue too long, merge oldest pairs preserving order and earliest timestamp
+      // If queue too long, merge oldest pairs (merged items use speechSynthesis fallback)
       while (queue.length > 10 && queue.length >= 2) {
         const first  = queue.shift();
         const second = queue.shift();
@@ -836,6 +867,7 @@
     function connectSSE(lang) {
       if (es) es.close();
 
+      if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
       queue = [];
       speaking = false;
       window.speechSynthesis.cancel();
@@ -947,6 +979,7 @@
 
     document.getElementById('stop').onclick = async () => {
       if (es) { es.close(); es = null; }
+      if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
       queue = [];
       window.speechSynthesis.cancel();
       speaking = false;
