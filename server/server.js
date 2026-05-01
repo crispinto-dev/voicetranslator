@@ -676,12 +676,15 @@ app.post('/preset-suggest', (req, res) => {
 const pendingByLang        = new Map();   // lang → { texts[], ts, seq, maxTimer }
 const timerByLang          = new Map();   // lang → debounce timeoutId
 const translationInProgress = new Map();  // lang → Promise (serializes translations per lang)
+const ttsMergeBuffers = new Map();
 
 // Small window just to coalesce bursts from network jitter.
 // The guide already does micro-chunking, so a large debounce is redundant.
 const DEBOUNCE_MS  = 20;
 // Absolute safety valve: if a batch hasn't been flushed in 3s, force it.
 const MAX_WAIT_MS  = 3000;
+const TTS_MERGE_MS = 180;
+const TTS_MERGE_MAX_ITEMS = 3;
 
 async function flushLang(lk) {
   // Cancel the debounce timer if it fired us (no-op if called by maxTimer)
@@ -733,7 +736,7 @@ async function flushLang(lk) {
       });
       console.log(`[Ingest] Text preview broadcast to ${textPreviewSent} client(s) (${lk})`);
 
-      generateAndBroadcastTTS(lk, {
+      enqueueTTS(lk, {
         text: translated,
         ts: batch.ts ?? Date.now(),
         seq: batch.seq
@@ -748,13 +751,49 @@ async function flushLang(lk) {
   translationInProgress.delete(lk);
 }
 
-async function generateAndBroadcastTTS(lk, { text, ts, seq }) {
+function enqueueTTS(lk, item) {
+  let buffer = ttsMergeBuffers.get(lk);
+  if (!buffer) {
+    buffer = { items: [], timer: null };
+    ttsMergeBuffers.set(lk, buffer);
+  }
+
+  buffer.items.push(item);
+
+  if (buffer.items.length >= TTS_MERGE_MAX_ITEMS) {
+    flushTTSMergeBuffer(lk);
+    return;
+  }
+
+  if (buffer.timer) clearTimeout(buffer.timer);
+  buffer.timer = setTimeout(() => flushTTSMergeBuffer(lk), TTS_MERGE_MS);
+}
+
+function flushTTSMergeBuffer(lk) {
+  const buffer = ttsMergeBuffers.get(lk);
+  if (!buffer || buffer.items.length === 0) return;
+
+  if (buffer.timer) clearTimeout(buffer.timer);
+  ttsMergeBuffers.delete(lk);
+
+  const items = buffer.items.splice(0, TTS_MERGE_MAX_ITEMS);
+  const merged = {
+    text: items.map(item => item.text).join(' '),
+    ts: items[0].ts,
+    seq: items[0].seq,
+    mergedSeqs: items.map(item => item.seq)
+  };
+
+  generateAndBroadcastTTS(lk, merged);
+}
+
+async function generateAndBroadcastTTS(lk, { text, ts, seq, mergedSeqs = null }) {
   let audioUrl = null;
   const speed = visitorSettings.get(lk)?.ttsRate ?? 1.0;
 
   if ((process.env.TTS_PROVIDER || 'openai').toLowerCase() === 'openai') {
     audioUrl = createOpenAITTSStreamUrl(text, speed);
-    console.log(`[TTS] Streaming URL ready seq:${seq}: ${audioUrl} (speed ${speed})`);
+    console.log(`[TTS] Streaming URL ready seq:${seq}: ${audioUrl} (speed ${speed}, merged=${mergedSeqs?.length || 1})`);
   } else {
     try {
     audioUrl = await generateTTSAudio(text, speed);
@@ -767,7 +806,7 @@ async function generateAndBroadcastTTS(lk, { text, ts, seq }) {
   const sent = broadcastToLang(lk, {
     id: ++globalEventId,
     event: 'chunk',
-    data: { text, ts, seq, audioUrl }
+    data: { text, ts, seq, audioUrl, mergedSeqs }
   });
   console.log(`[Ingest] Audio chunk broadcast to ${sent} client(s) (${lk})`);
 }
