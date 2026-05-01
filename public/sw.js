@@ -45,6 +45,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const url = new URL(event.request.url);
+  const dynamicPaths = [
+    '/api/',
+    '/ingest',
+    '/sse',
+    '/visitor-settings',
+    '/preset-suggest',
+    '/session-log',
+    '/status',
+    '/audio-tts/'
+  ];
+
+  if (event.request.method !== 'GET' || dynamicPaths.some(path => url.pathname.startsWith(path))) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {

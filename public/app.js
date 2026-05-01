@@ -118,7 +118,7 @@ class VoiceTranslator {
 
       // Create session with turn detection config
       const sessionConfig = {
-        model: 'gpt-4o-realtime-preview-2024-12-17'
+        model: 'gpt-realtime'
       };
 
       // DEBUG: Log fullDuplexMode state at session creation

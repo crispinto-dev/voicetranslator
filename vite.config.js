@@ -21,11 +21,20 @@ export default defineConfig({
     port: 5173,
     hmr: false,  // Disable HMR to avoid WebSocket errors
     proxy: {
-      '/api': {
+      ...Object.fromEntries([
+        '/api',
+        '/ingest',
+        '/sse',
+        '/visitor-settings',
+        '/preset-suggest',
+        '/session-log',
+        '/status',
+        '/audio-tts'
+      ].map(route => [route, {
         target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false
-      }
+      }]))
     }
   }
 });

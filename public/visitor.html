@@ -338,6 +338,7 @@
       <label for="lang">🌍 Lingua Audio:</label>
       <select id="lang">
         <option value="en">English</option>
+        <option value="it">Italiano</option>
         <option value="es">Español</option>
         <option value="fr">Français</option>
         <option value="de">Deutsch</option>
@@ -429,6 +430,8 @@
     let speaking = false;
     let currentAudio = null;   // Currently playing Audio element (OpenAI TTS)
     let preferredVoice = null;
+    let allowBrowserTtsFallback = false;
+    let playbackGeneration = 0;
     let chunksReceived = 0;
     let speakingStartedAt = 0;
     let ttsWatchdog = null;
@@ -613,7 +616,7 @@
     }
 
     function showNoChunkWarning() {
-      document.getElementById('noChunkWarning').style.display = 'block';
+      // Keep the receiver silent: operational warnings should stay off the visitor device.
     }
 
     function hideNoChunkWarning() {
@@ -737,6 +740,11 @@
     // ==========================================
 
     function _speakSynthesis(text, lang, onEnd, onError) {
+      if (!allowBrowserTtsFallback) {
+        console.warn('[Visitor] Browser TTS fallback disabled, skipping local speech synthesis');
+        onEnd();
+        return;
+      }
       const u = new SpeechSynthesisUtterance(text);
       if (preferredVoice) u.voice = preferredVoice;
       u.lang   = preferredVoice?.lang || lang;
@@ -755,6 +763,7 @@
         return;
       }
 
+      const generation = playbackGeneration;
       const item     = queue.shift();
       const text     = item.text;
       const chunkTs  = item.ts;
@@ -778,6 +787,7 @@
       if (ttsWatchdog) clearInterval(ttsWatchdog);
 
       const onPlayEnd = () => {
+        if (generation !== playbackGeneration) return;
         speaking = false;
         currentAudio = null;
         if (ttsWatchdog) { clearInterval(ttsWatchdog); ttsWatchdog = null; }
@@ -789,6 +799,7 @@
       };
 
       const onPlayError = (e) => {
+        if (generation !== playbackGeneration) return;
         console.error('[Visitor] TTS error:', e);
         speaking = false;
         currentAudio = null;
@@ -797,20 +808,15 @@
         setTimeout(() => speakNext(lang), 100);
       };
 
-      // Watchdog: force recovery only when there's a queue backlog
+      // Watchdog: report long playback, but never cut a valid phrase.
       const watchdogMs = getWatchdogTimeout(text);
       ttsWatchdog = setInterval(() => {
         if (!speaking) { clearInterval(ttsWatchdog); ttsWatchdog = null; return; }
         const elapsed = Date.now() - speakingStartedAt;
         if (elapsed >= watchdogMs && queue.length >= 1) {
-          console.warn(`[Visitor] TTS watchdog: elapsed ${elapsed}ms, backlog ${queue.length}, forcing recovery`);
+          console.warn(`[Visitor] TTS watchdog: elapsed ${elapsed}ms, backlog ${queue.length}; waiting for audio to finish`);
           clearInterval(ttsWatchdog);
           ttsWatchdog = null;
-          if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-          else window.speechSynthesis.cancel();
-          speaking = false;
-          hideSubtitle();
-          speakNext(lang);
         }
       }, 1000);
 
@@ -819,12 +825,12 @@
         currentAudio = audio;
         audio.onended = onPlayEnd;
         audio.onerror = () => {
-          console.warn('[Visitor] Audio element error, falling back to speechSynthesis');
+          console.warn('[Visitor] Audio element error');
           currentAudio = null;
           _speakSynthesis(text, lang, onPlayEnd, onPlayError);
         };
         audio.play().catch(() => {
-          console.warn('[Visitor] audio.play() rejected, falling back to speechSynthesis');
+          console.warn('[Visitor] audio.play() rejected');
           currentAudio = null;
           _speakSynthesis(text, lang, onPlayEnd, onPlayError);
         });
@@ -867,6 +873,7 @@
     function connectSSE(lang) {
       if (es) es.close();
 
+      playbackGeneration++;
       if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
       queue = [];
       speaking = false;
@@ -883,9 +890,7 @@
         setStatus('connected', '🟢 Connesso - In ascolto');
         lastChunkTime = Date.now();
         if (noChunkInterval) clearInterval(noChunkInterval);
-        noChunkInterval = setInterval(() => {
-          if (es && Date.now() - lastChunkTime > 15000) showNoChunkWarning();
-        }, 5000);
+        noChunkInterval = null;
       });
 
       es.addEventListener('ping', () => {
@@ -965,19 +970,11 @@
       await requestWakeLock();
 
       if (backlogInterval) clearInterval(backlogInterval);
-      backlogInterval = setInterval(checkBacklogAndAdaptPreset, 5000);
-
-      // iOS workaround: speak silent utterance to unlock audio context
-      try {
-        const u = new SpeechSynthesisUtterance(' ');
-        u.volume = 0;
-        window.speechSynthesis.speak(u);
-      } catch (e) {
-        console.warn('[Visitor] Could not speak silent utterance:', e);
-      }
+      backlogInterval = null;
     };
 
     document.getElementById('stop').onclick = async () => {
+      playbackGeneration++;
       if (es) { es.close(); es = null; }
       if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
       queue = [];

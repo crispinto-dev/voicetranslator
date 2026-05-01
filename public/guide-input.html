@@ -550,9 +550,27 @@
 
     <div id="setupForm">
       <div class="form-group">
+        <label for="sourceLanguage">Guida parla in:</label>
+        <select id="sourceLanguage">
+          <option value="it" selected>Italiano</option>
+          <option value="en">English</option>
+          <option value="es">Espanol</option>
+          <option value="fr">Francais</option>
+          <option value="de">Deutsch</option>
+          <option value="pt">Portugues</option>
+          <option value="zh">Chinese</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="ar">Arabic</option>
+          <option value="ru">Russian</option>
+        </select>
+      </div>
+
+      <div class="form-group">
         <label for="targetLanguage">🌍 Traduci in:</label>
         <select id="targetLanguage">
           <option value="en">English</option>
+          <option value="it">Italiano</option>
           <option value="es">Español</option>
           <option value="fr">Français</option>
           <option value="de">Deutsch</option>
@@ -620,7 +638,7 @@
       </div>
 
       <div class="transcript">
-        <h3>Testo Rilevato (IT)</h3>
+        <h3 id="transcriptTitle">Testo Rilevato</h3>
         <div id="transcriptLog"></div>
       </div>
 
@@ -704,6 +722,7 @@
         this.session = null;
         this.agent = null;
         this.isRunning = false;
+        this.sourceLanguage = 'it';
         this.targetLanguage = 'en';
         this.chunksSent = 0;
         this.sequenceNumber = 0;
@@ -778,6 +797,8 @@
         this.chunksSentEl     = document.getElementById('chunksSent');
         this.receiverStatusEl = document.getElementById('receiverStatus');
         this.transcriptLog    = document.getElementById('transcriptLog');
+        this.transcriptTitle  = document.getElementById('transcriptTitle');
+        this.sourceLanguageSelect = document.getElementById('sourceLanguage');
         this.targetLanguageSelect = document.getElementById('targetLanguage');
         this.startBtn         = document.getElementById('startBtn');
         this.stopBtn          = document.getElementById('stopBtn');
@@ -1265,7 +1286,11 @@
 
       async start() {
         try {
+          this.sourceLanguage = this.sourceLanguageSelect.value;
           this.targetLanguage = this.targetLanguageSelect.value;
+          if (this.transcriptTitle) {
+            this.transcriptTitle.textContent = `Testo Rilevato (${this.sourceLanguage.toUpperCase()})`;
+          }
 
           const selectedPreset = document.querySelector('input[name="preset"]:checked')?.value || 'simultaneous';
           this.applyPreset(selectedPreset);
@@ -1295,7 +1320,11 @@
           const tokenResponse = await fetch('/api/realtime/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ language: this.targetLanguage, mode: 'stt-only' })
+            body: JSON.stringify({
+              language: this.targetLanguage,
+              sourceLang: this.sourceLanguage,
+              mode: 'stt-only'
+            })
           });
 
           if (!tokenResponse.ok) throw new Error('Failed to get token');
@@ -1314,8 +1343,11 @@
           });
 
           const sessionConfig = {
-            model: 'gpt-4o-realtime-preview-2024-12-17',
-            inputAudioTranscription: { model: 'whisper-1' },
+            model: 'gpt-realtime',
+            inputAudioTranscription: {
+              model: 'gpt-4o-transcribe',
+              language: this.sourceLanguage
+            },
             transport,
             config: {
               turnDetection: {
@@ -1607,7 +1639,7 @@
 
           const chunk = {
             lang: this.targetLanguage,
-            sourceLang: 'it',
+            sourceLang: this.sourceLanguage,
             sourceText,
             ts,
             seq
@@ -1635,14 +1667,6 @@
               this.wordEvents.push({ count: wordCount, time: Date.now() });
 
               this.updateReceiverStatus(result.hasReceiver ? (result.accepted ? 'ok' : 'mismatch') : 'offline');
-
-              if (result.suggestedPreset && result.suggestedPreset !== this.currentPreset) {
-                console.log(`[Guide] Visitor suggests preset: ${result.suggestedPreset}`);
-                this.applyPreset(result.suggestedPreset);
-                this._syncSliders();
-                const radio = document.querySelector(`input[name="preset"][value="${result.suggestedPreset}"]`);
-                if (radio) radio.checked = true;
-              }
 
               this.addToTranscript(sourceText);
               console.log(`[Guide] Sent. latency=${latency}ms hasReceiver=${result.hasReceiver}`);

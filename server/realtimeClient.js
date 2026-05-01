@@ -12,7 +12,7 @@ export class OpenAIRealtimeClient {
 
   async connect() {
     return new Promise((resolve, reject) => {
-      const url = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17';
+      const url = `wss://api.openai.com/v1/realtime?model=${process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime'}`;
 
       this.ws = new WebSocket(url, {
         headers: {

@@ -55,6 +55,10 @@ setInterval(() => {
 }, 120_000);
 
 async function generateTTSAudio(text, speed = 1.0) {
+  if ((process.env.TTS_PROVIDER || 'openai').toLowerCase() === 'elevenlabs') {
+    return generateElevenLabsTTSAudio(text);
+  }
+
   const response = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
     headers: {
@@ -62,14 +66,48 @@ async function generateTTSAudio(text, speed = 1.0) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'tts-1',
+      model: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts',
       input: text,
-      voice: 'nova',
+      voice: process.env.OPENAI_TTS_VOICE || 'marin',
       speed: Math.min(4.0, Math.max(0.25, speed)),
       response_format: 'mp3'
     })
   });
   if (!response.ok) throw new Error(`TTS API error: ${response.status} ${await response.text()}`);
+  const filename = `tts-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.mp3`;
+  fs.writeFileSync(path.join(audioTtsDir, filename), Buffer.from(await response.arrayBuffer()));
+  return `/audio-tts/${filename}`;
+}
+
+async function generateElevenLabsTTSAudio(text) {
+  if (!process.env.ELEVENLABS_API_KEY) {
+    throw new Error('ELEVENLABS_API_KEY is missing');
+  }
+
+  const voiceId = process.env.ELEVENLABS_VOICE_ID;
+  if (!voiceId) {
+    throw new Error('ELEVENLABS_VOICE_ID is missing');
+  }
+
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?output_format=mp3_44100_128`, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': process.env.ELEVENLABS_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      text,
+      model_id: process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5',
+      voice_settings: {
+        stability: 0.55,
+        similarity_boost: 0.8,
+        style: 0.15,
+        use_speaker_boost: true
+      }
+    })
+  });
+
+  if (!response.ok) throw new Error(`ElevenLabs TTS API error: ${response.status} ${await response.text()}`);
   const filename = `tts-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.mp3`;
   fs.writeFileSync(path.join(audioTtsDir, filename), Buffer.from(await response.arrayBuffer()));
   return `/audio-tts/${filename}`;
@@ -112,6 +150,7 @@ function rateLimit(limit, windowMs) {
 // ==========================================
 
 const SUPPORTED_LANGS = new Set(['en', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ja', 'ko', 'ar', 'ru']);
+const SUPPORTED_MODES = new Set(['normal', 'museum', 'stt-only']);
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
@@ -121,9 +160,21 @@ app.get('/health', (_req, res) => {
 // Endpoint to generate ephemeral API key for Realtime API
 app.post('/api/realtime/token', rateLimit(5, 60000), async (req, res) => {
   try {
-    const { language = 'en', mode = 'normal' } = req.body;
+    const { language = 'en', sourceLang = 'it', mode = 'normal' } = req.body;
+    const lk = String(language).toLowerCase();
+    const sourceLk = String(sourceLang).toLowerCase();
 
-    console.log(`Generating ephemeral token for language: ${language}, mode: ${mode}`);
+    if (!SUPPORTED_LANGS.has(lk)) {
+      return res.status(400).json({ error: `Unsupported language: ${lk}` });
+    }
+    if (!SUPPORTED_LANGS.has(sourceLk)) {
+      return res.status(400).json({ error: `Unsupported source language: ${sourceLk}` });
+    }
+    if (!SUPPORTED_MODES.has(mode)) {
+      return res.status(400).json({ error: `Unsupported mode: ${mode}` });
+    }
+
+    console.log(`Generating ephemeral token for source: ${sourceLk}, target: ${lk}, mode: ${mode}`);
 
     const languageNames = {
       'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
@@ -131,17 +182,18 @@ app.post('/api/realtime/token', rateLimit(5, 60000), async (req, res) => {
       'ko': 'Korean', 'ar': 'Arabic', 'ru': 'Russian'
     };
 
-    const targetLanguageName = languageNames[language] || 'English';
+    const targetLanguageName = languageNames[lk] || 'English';
+    const sourceLanguageName = languageNames[sourceLk] || 'Italian';
 
     let instructions;
 
     if (mode === 'stt-only') {
-      instructions = `You are a speech-to-text transcriber. Just listen and transcribe.`;
+      instructions = `You are a speech-to-text transcriber. The speaker is using ${sourceLanguageName}. Listen and transcribe only the speaker's words.`;
     } else if (mode === 'museum') {
       instructions = `You are a professional simultaneous interpreter for museum/tour guides, translating into ${targetLanguageName}.
 
 DUAL DEVICE TEXT-ONLY MODE:
-1. The guide speaks in their native language (typically Italian)
+1. The guide speaks in ${sourceLanguageName}
 2. You translate into ${targetLanguageName} in real-time
 3. Output ONLY the translated text - NO audio, NO commentary, NO explanations
 4. Your text output will be sent to visitor devices for local text-to-speech playback
@@ -209,8 +261,16 @@ You are a professional real-time translator for personal conversations and inter
         expires_after: { anchor: 'created_at', seconds: 600 },
         session: {
           type: 'realtime',
-          model: 'gpt-4o-realtime-preview-2024-12-17',
-          instructions: instructions
+          model: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime',
+          instructions: instructions,
+          audio: {
+            input: {
+              transcription: {
+                model: process.env.OPENAI_STT_MODEL || 'gpt-4o-transcribe',
+                language: sourceLk
+              }
+            }
+          }
         }
       })
     });
@@ -264,7 +324,8 @@ const languageNames = {
   'ko': 'Korean', 'ar': 'Arabic', 'ru': 'Russian'
 };
 
-async function translateText({ sourceText, targetLang }) {
+async function translateText({ sourceText, sourceLang = 'it', targetLang }) {
+  const sourceLanguageName = languageNames[sourceLang] || 'Italian';
   const targetLanguageName = languageNames[targetLang] || 'English';
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -279,9 +340,10 @@ async function translateText({ sourceText, targetLang }) {
         {
           role: 'system',
           content: `You are a professional simultaneous interpreter for museum tours.
-Translate the following Italian text into ${targetLanguageName}.
+Translate the following ${sourceLanguageName} text into ${targetLanguageName}.
 Output ONLY the translation, nothing else. No quotes, no explanations.
-Keep it natural and suitable for text-to-speech.`
+Keep it natural and suitable for text-to-speech.
+If the input is empty, unclear, silence, background noise, or not actual guide speech, output an empty string.`
         },
         { role: 'user', content: sourceText }
       ],
@@ -297,6 +359,31 @@ Keep it natural and suitable for text-to-speech.`
 
   const data = await response.json();
   return data.choices?.[0]?.message?.content?.trim() || '';
+}
+
+function isNonTranslationText(text) {
+  const value = String(text || '').trim();
+  if (!value) return true;
+
+  const normalized = value.toLowerCase();
+  const blocked = [
+    'i cannot translate',
+    'i can not translate',
+    'i am unable to translate',
+    'non posso tradurre',
+    'non riesco a tradurre',
+    'non ho capito',
+    'nessun segnale',
+    'no speech detected',
+    'no audio detected',
+    'unclear audio',
+    'language detected',
+    'detected language',
+    'translation:',
+    'traduzione:'
+  ];
+
+  return blocked.some(phrase => normalized.includes(phrase));
 }
 
 // ==========================================
@@ -492,7 +579,11 @@ async function flushLang(lk) {
   const translationPromise = (async () => {
     const flushStartMs = Date.now();
     try {
-      const translated = await translateText({ sourceText: combinedText, targetLang: lk });
+      const translated = await translateText({ sourceText: combinedText, sourceLang: batch.sourceLang, targetLang: lk });
+      if (isNonTranslationText(translated)) {
+        console.warn('[Ingest] Dropping non-translation output:', translated);
+        return;
+      }
       const latencyMs = Date.now() - flushStartMs;
       console.log(`[Ingest] → "${translated.substring(0, 80)}" (${latencyMs}ms)`);
       totalChunksTranslated++;
@@ -536,7 +627,7 @@ async function flushLang(lk) {
 
 // Ingest: receives source text chunks from the guide device
 app.post('/ingest', rateLimit(30, 60000), (req, res) => {
-  const { sourceText, ts, seq, lang } = req.body || {};
+  const { sourceText, sourceLang = 'it', ts, seq, lang } = req.body || {};
 
   // Input validation
   if (typeof sourceText !== 'string' || sourceText.length === 0 || sourceText.length > 1000) {
@@ -547,9 +638,13 @@ app.post('/ingest', rateLimit(30, 60000), (req, res) => {
   }
 
   const lk = lang.toLowerCase();
+  const sourceLk = String(sourceLang).toLowerCase();
 
   if (!SUPPORTED_LANGS.has(lk)) {
     return res.status(400).json({ ok: false, error: `Unsupported language: ${lk}` });
+  }
+  if (!SUPPORTED_LANGS.has(sourceLk)) {
+    return res.status(400).json({ ok: false, error: `Unsupported source language: ${sourceLk}` });
   }
   if (seq !== undefined && (typeof seq !== 'number' || !Number.isFinite(seq) || seq < 0)) {
     return res.status(400).json({ ok: false, error: 'Invalid seq: must be a non-negative number' });
@@ -566,7 +661,7 @@ app.post('/ingest', rateLimit(30, 60000), (req, res) => {
     hasReceiver,
     clientCount: receiverCount,
     accepted: hasReceiver,
-    suggestedPreset: suggestedPresets[lang] || null
+    suggestedPreset: null
   });
 
   if (!hasReceiver) return;
@@ -579,9 +674,10 @@ app.post('/ingest', rateLimit(30, 60000), (req, res) => {
       console.warn(`[Ingest] Force-flush after ${MAX_WAIT_MS}ms for ${lk}`);
       flushLang(lk);
     }, MAX_WAIT_MS);
-    pendingByLang.set(lk, { texts: [sourceText], ts, seq, maxTimer });
+    pendingByLang.set(lk, { texts: [sourceText], sourceLang: sourceLk, ts, seq, maxTimer });
   } else {
     existing.texts.push(sourceText);
+    existing.sourceLang = sourceLk;
     existing.seq = seq;
     if (!existing.ts) existing.ts = ts;
   }
