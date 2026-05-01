@@ -456,6 +456,7 @@
 
     let currentLang = 'en';
     let lastProcessedSeq = -1;
+    let previewedSeqs = new Set();
     let pendingChunks = new Map();
     let backlogInterval = null;
     let lastChunkTime = Date.now();
@@ -636,7 +637,7 @@
       }
 
       if (seq === lastProcessedSeq + 1) {
-        enqueueAndSpeak(text, ts, currentLang, audioUrl);
+        enqueueAndSpeak(text, ts, currentLang, audioUrl, seq);
         lastProcessedSeq = seq;
         processPendingInOrder();
       } else {
@@ -654,7 +655,7 @@
         if (pendingChunks.has(nextExpected)) {
           const chunk = pendingChunks.get(nextExpected);
           pendingChunks.delete(nextExpected);
-          enqueueAndSpeak(chunk.text, chunk.ts, currentLang, chunk.audioUrl);
+          enqueueAndSpeak(chunk.text, chunk.ts, currentLang, chunk.audioUrl, nextExpected);
           lastProcessedSeq = nextExpected;
           if (pendingChunks.size > 0) scheduleProcessPending();
         } else if (pendingChunks.size > 0) {
@@ -672,7 +673,7 @@
       while (pendingChunks.has(lastProcessedSeq + 1)) {
         const chunk = pendingChunks.get(lastProcessedSeq + 1);
         pendingChunks.delete(lastProcessedSeq + 1);
-        enqueueAndSpeak(chunk.text, chunk.ts, currentLang, chunk.audioUrl);
+        enqueueAndSpeak(chunk.text, chunk.ts, currentLang, chunk.audioUrl, lastProcessedSeq + 1);
         lastProcessedSeq++;
       }
     }
@@ -840,7 +841,19 @@
       }
     }
 
-    function enqueueAndSpeak(text, ts, lang, audioUrl) {
+    function handleTextPreview(data) {
+      const { text, seq } = data;
+      const cleaned = (text || '').trim();
+      if (!cleaned || previewedSeqs.has(seq)) return;
+
+      previewedSeqs.add(seq);
+      addTranscript(cleaned);
+      chunksReceived++;
+      showSubtitle(cleaned);
+      updateStats();
+    }
+
+    function enqueueAndSpeak(text, ts, lang, audioUrl, seq) {
       const cleaned = text.trim();
       if (!cleaned) return;
 
@@ -854,8 +867,10 @@
         console.log('[Visitor] Queue merged:', (first.text + ' ' + second.text).substring(0, 50));
       }
 
-      addTranscript(cleaned);
-      chunksReceived++;
+      if (!previewedSeqs.has(seq)) {
+        addTranscript(cleaned);
+        chunksReceived++;
+      }
       updateStats();
 
       // Micro-delay for first chunk after silence to avoid TTS cuts
@@ -903,6 +918,14 @@
         const data = JSON.parse(ev.data);
         console.log('[Visitor] Received chunk #' + data.seq);
         processChunk(data);
+      });
+
+      es.addEventListener('chunk-text', (ev) => {
+        lastChunkTime = Date.now();
+        hideNoChunkWarning();
+        const data = JSON.parse(ev.data);
+        console.log('[Visitor] Received text preview #' + data.seq);
+        handleTextPreview(data);
       });
 
       // Settings pushed by guide (TTS rate) or replayed for late-joining clients
@@ -962,6 +985,7 @@
       const lang = document.getElementById('lang').value;
       currentLang = lang;
       lastProcessedSeq = -1;
+      previewedSeqs.clear();
       pendingChunks.clear();
       console.log('[Visitor] Starting with language:', lang);
 
@@ -988,6 +1012,7 @@
       if (reconnectCountdownTimer) { clearInterval(reconnectCountdownTimer);  reconnectCountdownTimer  = null; }
       hideNoChunkWarning();
       lastProcessedSeq = -1;
+      previewedSeqs.clear();
       pendingChunks.clear();
       reconnectAttempts = 0;
       document.getElementById('manualReconnectBtn').style.display = 'none';

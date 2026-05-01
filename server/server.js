@@ -552,9 +552,9 @@ const pendingByLang        = new Map();   // lang → { texts[], ts, seq, maxTim
 const timerByLang          = new Map();   // lang → debounce timeoutId
 const translationInProgress = new Map();  // lang → Promise (serializes translations per lang)
 
-// 50ms window just to coalesce bursts from network jitter.
+// Small window just to coalesce bursts from network jitter.
 // The guide already does micro-chunking, so a large debounce is redundant.
-const DEBOUNCE_MS  = 50;
+const DEBOUNCE_MS  = 20;
 // Absolute safety valve: if a batch hasn't been flushed in 3s, force it.
 const MAX_WAIT_MS  = 3000;
 
@@ -600,6 +600,13 @@ async function flushLang(lk) {
       if (sessionLog.length > 1000) sessionLog.shift();
 
       // Generate TTS audio — best-effort; visitor falls back to speechSynthesis on failure
+      const textPreviewSent = broadcastToLang(lk, {
+        id: ++globalEventId,
+        event: 'chunk-text',
+        data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq }
+      });
+      console.log(`[Ingest] Text preview broadcast to ${textPreviewSent} client(s) (${lk})`);
+
       let audioUrl = null;
       try {
         const speed = visitorSettings.get(lk)?.ttsRate ?? 1.0;
@@ -626,7 +633,7 @@ async function flushLang(lk) {
 }
 
 // Ingest: receives source text chunks from the guide device
-app.post('/ingest', rateLimit(30, 60000), (req, res) => {
+app.post('/ingest', rateLimit(240, 60000), (req, res) => {
   const { sourceText, sourceLang = 'it', ts, seq, lang } = req.body || {};
 
   // Input validation
