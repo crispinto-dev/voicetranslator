@@ -587,7 +587,12 @@
         <label>⚡ Stile traduzione:</label>
         <div class="preset-selector">
           <label class="preset-option">
-            <input type="radio" name="preset" value="simultaneous" checked>
+            <input type="radio" name="preset" value="customer" checked>
+            <span class="preset-label">Cliente</span>
+            <span class="preset-desc">Consigliato</span>
+          </label>
+          <label class="preset-option">
+            <input type="radio" name="preset" value="simultaneous">
             <span class="preset-label">🟢 Simultaneo</span>
             <span class="preset-desc">Rapido</span>
           </label>
@@ -696,6 +701,14 @@
         MIN_SEND_GAP_MS: 200,
         STT_PAUSE_MS: 450
       },
+      customer: {
+        name: 'Cliente',
+        MICRO_MAX_CHARS: 110,
+        MICRO_MIN_CHARS: 20,
+        MICRO_FLUSH_MS: 550,
+        MIN_SEND_GAP_MS: 150,
+        STT_PAUSE_MS: 400
+      },
       balanced: {
         name: 'Equilibrato',
         MICRO_MAX_CHARS: 140,
@@ -732,7 +745,7 @@
         this.microFlushTimer = null;
         this.speechStoppedTimer = null;
         this.muteInterval = null;
-        this.currentPreset = 'simultaneous';
+        this.currentPreset = 'customer';
         this.applyPreset(this.currentPreset);
 
         // Dedup state
@@ -843,7 +856,7 @@
             sl: 'sttPause', label: 'Pausa STT',
             tip: 'Silenzio necessario per inviare il buffer al server',
             min: 200, max: 1500, step: 50, minLabel: '200ms', maxLabel: '1.5s',
-            presets: { simultaneous: 450, balanced: 600, natural: 800 },
+            presets: { simultaneous: 450, customer: 400, balanced: 600, natural: 800 },
             lsKey: 'gp_sttPause', fmt: v => v + 'ms',
             get: () => this.STT_PAUSE_MS,
             set: v => { this.STT_PAUSE_MS = v; }
@@ -852,7 +865,7 @@
             sl: 'minChars', label: 'Min chunk',
             tip: 'Sotto questa soglia il testo attende più contenuto prima di inviare',
             min: 10, max: 80, step: 5, minLabel: '10c', maxLabel: '80c',
-            presets: { simultaneous: 20, balanced: 35, natural: 50 },
+            presets: { simultaneous: 20, customer: 20, balanced: 35, natural: 50 },
             lsKey: 'gp_minChars', fmt: v => v + 'c',
             get: () => this.MICRO_MIN_CHARS,
             set: v => { this.MICRO_MIN_CHARS = v; }
@@ -861,7 +874,7 @@
             sl: 'maxChars', label: 'Max chunk',
             tip: 'Raggiunta questa soglia, il buffer viene inviato immediatamente',
             min: 60, max: 300, step: 10, minLabel: '60c', maxLabel: '300c',
-            presets: { simultaneous: 100, balanced: 140, natural: 200 },
+            presets: { simultaneous: 100, customer: 110, balanced: 140, natural: 200 },
             lsKey: 'gp_maxChars', fmt: v => v + 'c',
             get: () => this.MICRO_MAX_CHARS,
             set: v => { this.MICRO_MAX_CHARS = v; }
@@ -870,7 +883,7 @@
             sl: 'flushMs', label: 'Flush timer',
             tip: 'Timer di sicurezza: invia il buffer anche se non arriva nuovo testo',
             min: 300, max: 2000, step: 50, minLabel: '300ms', maxLabel: '2s',
-            presets: { simultaneous: 650, balanced: 900, natural: 1400 },
+            presets: { simultaneous: 650, customer: 550, balanced: 900, natural: 1400 },
             lsKey: 'gp_flushMs', fmt: v => v + 'ms',
             get: () => this.MICRO_FLUSH_MS,
             set: v => { this.MICRO_FLUSH_MS = v; }
@@ -879,7 +892,7 @@
             sl: 'gapMs', label: 'Gap invii',
             tip: 'Intervallo minimo tra due POST consecutivi al server',
             min: 100, max: 500, step: 25, minLabel: '100ms', maxLabel: '500ms',
-            presets: { simultaneous: 200, balanced: 280, natural: 350 },
+            presets: { simultaneous: 200, customer: 150, balanced: 280, natural: 350 },
             lsKey: 'gp_gapMs', fmt: v => v + 'ms',
             get: () => this.MIN_SEND_GAP_MS,
             set: v => { this.MIN_SEND_GAP_MS = v; }
@@ -889,7 +902,7 @@
             sl: 'vadThr', label: 'Soglia VAD',
             tip: 'Più bassa = più sensibile al rumore. Default: 0.45',
             min: 0.10, max: 0.90, step: 0.05, minLabel: '0.10', maxLabel: '0.90',
-            presets: { simultaneous: 0.45, balanced: 0.45, natural: 0.45 },
+            presets: { simultaneous: 0.45, customer: 0.45, balanced: 0.45, natural: 0.45 },
             lsKey: 'gp_vadThr', fmt: v => v.toFixed(2),
             get: () => this.vadThreshold,
             set: v => { this.vadThreshold = v; this._scheduleVADUpdate(); }
@@ -898,7 +911,7 @@
             sl: 'silDur', label: 'Silenzio VAD',
             tip: 'Quanto silenzio per considerare finita la frase. Default: 750ms',
             min: 300, max: 2000, step: 50, minLabel: '300ms', maxLabel: '2s',
-            presets: { simultaneous: 750, balanced: 750, natural: 750 },
+            presets: { simultaneous: 750, customer: 750, balanced: 750, natural: 750 },
             lsKey: 'gp_silDur', fmt: v => v + 'ms',
             get: () => this.silDurationMs,
             set: v => { this.silDurationMs = v; this._scheduleVADUpdate(); }
@@ -908,7 +921,7 @@
             sl: 'ttsRate', label: 'Velocità TTS',
             tip: 'Velocità di riproduzione sul dispositivo visitor (1.0 = normale)',
             min: 0.5, max: 2.0, step: 0.1, minLabel: '0.5×', maxLabel: '2×',
-            presets: { simultaneous: 1.0, balanced: 1.0, natural: 1.0 },
+            presets: { simultaneous: 1.0, customer: 1.0, balanced: 1.0, natural: 1.0 },
             lsKey: 'gp_ttsRate', fmt: v => v.toFixed(1) + 'x',
             get: () => this.ttsRate,
             set: v => { this.ttsRate = v; this._sendTTSRate(v); }

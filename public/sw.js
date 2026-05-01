@@ -54,7 +54,8 @@ self.addEventListener('fetch', (event) => {
     '/preset-suggest',
     '/session-log',
     '/status',
-    '/audio-tts/'
+    '/audio-tts/',
+    '/audio-tts-stream/'
   ];
 
   if (event.request.method !== 'GET' || dynamicPaths.some(path => url.pathname.startsWith(path))) {

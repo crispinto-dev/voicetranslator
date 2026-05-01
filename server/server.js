@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import crypto from 'crypto';
+import { Readable } from 'stream';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,6 +39,18 @@ if (!fs.existsSync(audioTtsDir)) fs.mkdirSync(audioTtsDir, { recursive: true });
 
 app.use('/audio-tts', express.static(audioTtsDir));
 
+const ttsStreamJobs = new Map(); // id -> { text, speed, createdAt }
+
+function createOpenAITTSStreamUrl(text, speed = 1.0) {
+  const id = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+  ttsStreamJobs.set(id, {
+    text,
+    speed: Math.min(4.0, Math.max(0.25, speed)),
+    createdAt: Date.now()
+  });
+  return `/audio-tts-stream/${id}`;
+}
+
 // Delete MP3 files older than 10 minutes every 2 minutes
 setInterval(() => {
   const cutoff = Date.now() - 600_000;
@@ -52,7 +65,72 @@ setInterval(() => {
   } catch (e) {
     console.error('[TTS] Cleanup error:', e.message);
   }
+
+  for (const [id, job] of ttsStreamJobs) {
+    if (job.createdAt < cutoff) {
+      ttsStreamJobs.delete(id);
+    }
+  }
 }, 120_000);
+
+app.get('/audio-tts-stream/:id', async (req, res) => {
+  const job = ttsStreamJobs.get(req.params.id);
+  if (!job) {
+    return res.status(404).send('Audio stream expired');
+  }
+
+  const startedAt = Date.now();
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts',
+        input: job.text,
+        voice: process.env.OPENAI_TTS_VOICE || 'marin',
+        speed: job.speed,
+        response_format: 'mp3'
+      })
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`TTS stream API error: ${response.status} ${await response.text()}`);
+    }
+
+    const firstByteMs = Date.now() - startedAt;
+    recordMetric('ttsFirstByteMs', firstByteMs);
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    const stream = Readable.fromWeb(response.body);
+    stream.on('end', () => {
+      recordMetric('ttsCompleteMs', Date.now() - startedAt);
+      ttsStreamJobs.delete(req.params.id);
+    });
+    stream.on('error', (err) => {
+      console.error('[TTS] Stream error:', err.message);
+      ttsStreamJobs.delete(req.params.id);
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy(err);
+    });
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        ttsStreamJobs.delete(req.params.id);
+      }
+    });
+    stream.pipe(res);
+  } catch (err) {
+    console.error('[TTS] Stream generation failed:', err.message);
+    ttsStreamJobs.delete(req.params.id);
+    if (!res.headersSent) res.status(500).send('TTS stream failed');
+  }
+});
 
 async function generateTTSAudio(text, speed = 1.0) {
   if ((process.env.TTS_PROVIDER || 'openai').toLowerCase() === 'elevenlabs') {
@@ -403,6 +481,27 @@ let globalEventId = 0;
 let clientCounter = 0;
 let totalChunksTranslated = 0;
 const serverStartTime = Date.now();
+const metrics = {
+  ingestAccepted: 0,
+  translationMs: [],
+  ttsFirstByteMs: [],
+  ttsCompleteMs: []
+};
+
+function recordMetric(name, value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return;
+  if (!Array.isArray(metrics[name])) return;
+  metrics[name].push(Math.round(value));
+  if (metrics[name].length > 50) metrics[name].shift();
+}
+
+function metricSummary(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const avg = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+  const p95Index = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
+  return { avg, p95: sorted[p95Index], last: values[values.length - 1], samples: values.length };
+}
 
 function sseHeaders(res) {
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -480,7 +579,14 @@ app.get('/status', (_req, res) => {
     uptime: Math.floor((Date.now() - serverStartTime) / 1000),
     totalChunksTranslated,
     sessionLogEntries: sessionLog.length,
-    pendingLangs: [...pendingByLang.keys()]
+    pendingLangs: [...pendingByLang.keys()],
+    pendingTtsStreams: ttsStreamJobs.size,
+    metrics: {
+      ingestAccepted: metrics.ingestAccepted,
+      translationMs: metricSummary(metrics.translationMs),
+      ttsFirstByteMs: metricSummary(metrics.ttsFirstByteMs),
+      ttsCompleteMs: metricSummary(metrics.ttsCompleteMs)
+    }
   });
 });
 
@@ -585,6 +691,7 @@ async function flushLang(lk) {
         return;
       }
       const latencyMs = Date.now() - flushStartMs;
+      recordMetric('translationMs', latencyMs);
       console.log(`[Ingest] → "${translated.substring(0, 80)}" (${latencyMs}ms)`);
       totalChunksTranslated++;
 
@@ -624,12 +731,18 @@ async function flushLang(lk) {
 
 async function generateAndBroadcastTTS(lk, { text, ts, seq }) {
   let audioUrl = null;
-  try {
-    const speed = visitorSettings.get(lk)?.ttsRate ?? 1.0;
+  const speed = visitorSettings.get(lk)?.ttsRate ?? 1.0;
+
+  if ((process.env.TTS_PROVIDER || 'openai').toLowerCase() === 'openai') {
+    audioUrl = createOpenAITTSStreamUrl(text, speed);
+    console.log(`[TTS] Streaming URL ready seq:${seq}: ${audioUrl} (speed ${speed})`);
+  } else {
+    try {
     audioUrl = await generateTTSAudio(text, speed);
     console.log(`[TTS] Generated seq:${seq}: ${audioUrl} (speed ${speed})`);
-  } catch (ttsErr) {
-    console.warn('[TTS] Audio generation failed, visitor will use speechSynthesis:', ttsErr.message);
+    } catch (ttsErr) {
+      console.warn('[TTS] Audio generation failed, visitor will use speechSynthesis:', ttsErr.message);
+    }
   }
 
   const sent = broadcastToLang(lk, {
@@ -669,6 +782,7 @@ app.post('/ingest', rateLimit(240, 60000), (req, res) => {
   const hasReceiver   = receiverCount > 0;
 
   console.log(`[Ingest] seq:${seq} → ${lk} (${receiverCount} receiver(s)): "${sourceText.substring(0, 60)}"`);
+  metrics.ingestAccepted++;
 
   // Respond immediately so the guide isn't blocked on our translation latency
   res.json({

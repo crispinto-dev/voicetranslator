@@ -29,7 +29,8 @@ export default defineConfig({
         '/preset-suggest',
         '/session-log',
         '/status',
-        '/audio-tts'
+        '/audio-tts',
+        '/audio-tts-stream'
       ].map(route => [route, {
         target: 'http://localhost:3000',
         changeOrigin: true,
