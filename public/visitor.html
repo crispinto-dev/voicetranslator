@@ -624,6 +624,16 @@
       document.getElementById('noChunkWarning').style.display = 'none';
     }
 
+    function reportReceiverMetric(type, ts) {
+      if (!ts) return;
+      const elapsedMs = Date.now() - ts;
+      fetch('/metrics/receiver', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, elapsedMs, lang: currentLang })
+      }).catch(() => {});
+    }
+
     // ==========================================
     // CHUNK SEQUENCE ORDERING
     // ==========================================
@@ -835,6 +845,7 @@
           currentAudio = null;
           _speakSynthesis(text, lang, onPlayEnd, onPlayError);
         });
+        audio.addEventListener('playing', () => reportReceiverMetric('audio-start', chunkTs), { once: true });
         console.log('[Visitor] Playing OpenAI TTS:', text.substring(0, 50));
       } else {
         _speakSynthesis(text, lang, onPlayEnd, onPlayError);
@@ -847,6 +858,7 @@
       if (!cleaned || previewedSeqs.has(seq)) return;
 
       previewedSeqs.add(seq);
+      reportReceiverMetric('text', data.ts);
       addTranscript(cleaned);
       chunksReceived++;
       showSubtitle(cleaned);

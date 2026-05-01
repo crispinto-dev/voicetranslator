@@ -51,6 +51,7 @@ self.addEventListener('fetch', (event) => {
     '/ingest',
     '/sse',
     '/visitor-settings',
+    '/metrics/',
     '/preset-suggest',
     '/session-log',
     '/status',

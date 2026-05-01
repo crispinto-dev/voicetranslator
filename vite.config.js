@@ -26,6 +26,7 @@ export default defineConfig({
         '/ingest',
         '/sse',
         '/visitor-settings',
+        '/metrics',
         '/preset-suggest',
         '/session-log',
         '/status',

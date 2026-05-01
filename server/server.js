@@ -485,7 +485,9 @@ const metrics = {
   ingestAccepted: 0,
   translationMs: [],
   ttsFirstByteMs: [],
-  ttsCompleteMs: []
+  ttsCompleteMs: [],
+  receiverTextMs: [],
+  receiverAudioStartMs: []
 };
 
 function recordMetric(name, value) {
@@ -585,9 +587,26 @@ app.get('/status', (_req, res) => {
       ingestAccepted: metrics.ingestAccepted,
       translationMs: metricSummary(metrics.translationMs),
       ttsFirstByteMs: metricSummary(metrics.ttsFirstByteMs),
-      ttsCompleteMs: metricSummary(metrics.ttsCompleteMs)
+      ttsCompleteMs: metricSummary(metrics.ttsCompleteMs),
+      receiverTextMs: metricSummary(metrics.receiverTextMs),
+      receiverAudioStartMs: metricSummary(metrics.receiverAudioStartMs)
     }
   });
+});
+
+app.post('/metrics/receiver', rateLimit(600, 60000), (req, res) => {
+  const { type, elapsedMs } = req.body || {};
+  const value = Number(elapsedMs);
+
+  if (type === 'text') {
+    recordMetric('receiverTextMs', value);
+  } else if (type === 'audio-start') {
+    recordMetric('receiverAudioStartMs', value);
+  } else {
+    return res.status(400).json({ ok: false, error: 'Unsupported metric type' });
+  }
+
+  res.json({ ok: true });
 });
 
 // ==========================================
