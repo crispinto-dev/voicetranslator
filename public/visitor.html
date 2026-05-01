@@ -634,6 +634,14 @@
       }).catch(() => {});
     }
 
+    function getAdaptivePlaybackRate() {
+      const queuedItems = queue.length;
+      if (queuedItems >= 5) return 1.25;
+      if (queuedItems >= 3) return 1.18;
+      if (queuedItems >= 1) return 1.1;
+      return 1.0;
+    }
+
     // ==========================================
     // CHUNK SEQUENCE ORDERING
     // ==========================================
@@ -779,6 +787,7 @@
       const text     = item.text;
       const chunkTs  = item.ts;
       const audioUrl = item.audioUrl;
+      const adaptiveRate = getAdaptivePlaybackRate();
 
       speaking = true;
       speakingStartedAt = Date.now();
@@ -833,6 +842,8 @@
 
       if (audioUrl) {
         const audio = new Audio(audioUrl);
+        audio.playbackRate = adaptiveRate;
+        audio.preservesPitch = true;
         currentAudio = audio;
         audio.onended = onPlayEnd;
         audio.onerror = () => {
@@ -845,7 +856,10 @@
           currentAudio = null;
           _speakSynthesis(text, lang, onPlayEnd, onPlayError);
         });
-        audio.addEventListener('playing', () => reportReceiverMetric('audio-start', chunkTs), { once: true });
+        audio.addEventListener('playing', () => {
+          reportReceiverMetric('audio-start', chunkTs);
+          console.log(`[Visitor] Audio started at ${adaptiveRate.toFixed(2)}x, queue=${queue.length}`);
+        }, { once: true });
         console.log('[Visitor] Playing OpenAI TTS:', text.substring(0, 50));
       } else {
         _speakSynthesis(text, lang, onPlayEnd, onPlayError);
