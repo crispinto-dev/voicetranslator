@@ -335,7 +335,7 @@ async function translateText({ sourceText, sourceLang = 'it', targetLang }) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: process.env.OPENAI_TRANSLATION_MODEL || 'gpt-4.1-mini',
       messages: [
         {
           role: 'system',
@@ -607,21 +607,11 @@ async function flushLang(lk) {
       });
       console.log(`[Ingest] Text preview broadcast to ${textPreviewSent} client(s) (${lk})`);
 
-      let audioUrl = null;
-      try {
-        const speed = visitorSettings.get(lk)?.ttsRate ?? 1.0;
-        audioUrl = await generateTTSAudio(translated, speed);
-        console.log(`[TTS] Generated: ${audioUrl} (speed ${speed})`);
-      } catch (ttsErr) {
-        console.warn('[TTS] Audio generation failed, visitor will use speechSynthesis:', ttsErr.message);
-      }
-
-      const sent = broadcastToLang(lk, {
-        id: ++globalEventId,
-        event: 'chunk',
-        data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq, audioUrl }
+      generateAndBroadcastTTS(lk, {
+        text: translated,
+        ts: batch.ts ?? Date.now(),
+        seq: batch.seq
       });
-      console.log(`[Ingest] Broadcast to ${sent} client(s) (${lk})`);
     } catch (e) {
       console.error('[Ingest] Translation error:', e.message);
     }
@@ -630,6 +620,24 @@ async function flushLang(lk) {
   translationInProgress.set(lk, translationPromise);
   await translationPromise.catch(() => {});
   translationInProgress.delete(lk);
+}
+
+async function generateAndBroadcastTTS(lk, { text, ts, seq }) {
+  let audioUrl = null;
+  try {
+    const speed = visitorSettings.get(lk)?.ttsRate ?? 1.0;
+    audioUrl = await generateTTSAudio(text, speed);
+    console.log(`[TTS] Generated seq:${seq}: ${audioUrl} (speed ${speed})`);
+  } catch (ttsErr) {
+    console.warn('[TTS] Audio generation failed, visitor will use speechSynthesis:', ttsErr.message);
+  }
+
+  const sent = broadcastToLang(lk, {
+    id: ++globalEventId,
+    event: 'chunk',
+    data: { text, ts, seq, audioUrl }
+  });
+  console.log(`[Ingest] Audio chunk broadcast to ${sent} client(s) (${lk})`);
 }
 
 // Ingest: receives source text chunks from the guide device
