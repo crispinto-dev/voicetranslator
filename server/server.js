@@ -673,7 +673,7 @@ app.post('/preset-suggest', (req, res) => {
 // ==========================================
 
 // Per-language state
-const pendingByLang        = new Map();   // lang → { texts[], ts, seq, maxTimer }
+const pendingByLang        = new Map();   // lang → { items[], ts, sourceLang, maxTimer }
 const timerByLang          = new Map();   // lang → debounce timeoutId
 const translationInProgress = new Map();  // lang → Promise (serializes translations per lang)
 const ttsMergeBuffers = new Map();
@@ -683,7 +683,7 @@ const ttsMergeBuffers = new Map();
 const DEBOUNCE_MS  = 20;
 // Absolute safety valve: if a batch hasn't been flushed in 3s, force it.
 const MAX_WAIT_MS  = 3000;
-const TTS_MERGE_MS = 180;
+const TTS_MERGE_MS = 40;
 const TTS_MERGE_MAX_ITEMS = 3;
 
 async function flushLang(lk) {
@@ -696,8 +696,17 @@ async function flushLang(lk) {
   pendingByLang.delete(lk);
   clearTimeout(batch.maxTimer);
 
-  const combinedText = batch.texts.join(' ');
-  console.log(`[Ingest] Translating ${batch.texts.length} chunk(s) → ${lk}: "${combinedText.substring(0, 80)}"`);
+  const orderedItems = batch.items
+    .filter(item => Number.isFinite(item.seq))
+    .sort((a, b) => a.seq - b.seq);
+  const items = orderedItems.length > 0 ? orderedItems : batch.items;
+  const seqs = items
+    .map(item => item.seq)
+    .filter(seq => Number.isFinite(seq));
+  const firstSeq = seqs.length ? Math.min(...seqs) : batch.seq;
+  const mergedSeqs = seqs.length > 1 ? seqs : null;
+  const combinedText = items.map(item => item.sourceText).join(' ');
+  console.log(`[Ingest] Translating ${items.length} chunk(s) → ${lk}: "${combinedText.substring(0, 80)}"`);
 
   // Serialize: wait for any in-progress translation for this language before starting a new one.
   // This prevents a shorter chunk from overtaking a longer one and arriving out of order.
@@ -720,7 +729,8 @@ async function flushLang(lk) {
       // Persist to session log
       sessionLog.push({
         timestamp: new Date().toISOString(),
-        seq: batch.seq,
+        seq: firstSeq,
+        mergedSeqs,
         lang: lk,
         sourceText: combinedText,
         translatedText: translated,
@@ -732,14 +742,15 @@ async function flushLang(lk) {
       const textPreviewSent = broadcastToLang(lk, {
         id: ++globalEventId,
         event: 'chunk-text',
-        data: { text: translated, ts: batch.ts ?? Date.now(), seq: batch.seq }
+        data: { text: translated, ts: batch.ts ?? Date.now(), seq: firstSeq, mergedSeqs }
       });
       console.log(`[Ingest] Text preview broadcast to ${textPreviewSent} client(s) (${lk})`);
 
       enqueueTTS(lk, {
         text: translated,
         ts: batch.ts ?? Date.now(),
-        seq: batch.seq
+        seq: firstSeq,
+        mergedSeqs
       });
     } catch (e) {
       console.error('[Ingest] Translation error:', e.message);
@@ -781,7 +792,11 @@ function flushTTSMergeBuffer(lk) {
     text: items.map(item => item.text).join(' '),
     ts: items[0].ts,
     seq: items[0].seq,
-    mergedSeqs: items.map(item => item.seq)
+    mergedSeqs: items.flatMap(item => (
+      Array.isArray(item.mergedSeqs) && item.mergedSeqs.length > 0
+        ? item.mergedSeqs
+        : [item.seq]
+    ))
   };
 
   generateAndBroadcastTTS(lk, merged);
@@ -861,11 +876,19 @@ app.post('/ingest', rateLimit(240, 60000), (req, res) => {
       console.warn(`[Ingest] Force-flush after ${MAX_WAIT_MS}ms for ${lk}`);
       flushLang(lk);
     }, MAX_WAIT_MS);
-    pendingByLang.set(lk, { texts: [sourceText], sourceLang: sourceLk, ts, seq, maxTimer });
+    pendingByLang.set(lk, {
+      items: [{ sourceText, seq }],
+      sourceLang: sourceLk,
+      ts,
+      seq,
+      maxTimer
+    });
   } else {
-    existing.texts.push(sourceText);
+    existing.items.push({ sourceText, seq });
     existing.sourceLang = sourceLk;
-    existing.seq = seq;
+    if (!Number.isFinite(existing.seq) || (Number.isFinite(seq) && seq < existing.seq)) {
+      existing.seq = seq;
+    }
     if (!existing.ts) existing.ts = ts;
   }
 

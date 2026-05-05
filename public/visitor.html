@@ -455,7 +455,7 @@
     }
 
     let currentLang = 'en';
-    let lastProcessedSeq = -1;
+    let lastProcessedSeq = 0;
     let previewedSeqs = new Set();
     let pendingChunks = new Map();
     let backlogInterval = null;
@@ -646,21 +646,39 @@
     // CHUNK SEQUENCE ORDERING
     // ==========================================
 
-    function processChunk(data) {
-      const { text, seq, ts, audioUrl } = data;
+    function getChunkSeqs(seq, mergedSeqs) {
+      const rawSeqs = Array.isArray(mergedSeqs) && mergedSeqs.length > 0 ? mergedSeqs : [seq];
+      return rawSeqs
+        .map(Number)
+        .filter(n => Number.isFinite(n) && n > 0)
+        .sort((a, b) => a - b);
+    }
 
-      if (seq <= lastProcessedSeq) {
-        console.log('[Visitor] Chunk duplicato scartato:', seq);
+    function processChunk(data) {
+      const { text, seq, ts, audioUrl, mergedSeqs } = data;
+      const seqs = getChunkSeqs(seq, mergedSeqs);
+      if (seqs.length === 0) {
+        console.warn('[Visitor] Chunk senza sequenza valido scartato:', data);
+        return;
+      }
+      const firstSeq = Math.min(...seqs);
+      const lastSeq = Math.max(...seqs);
+
+      if (lastSeq <= lastProcessedSeq) {
+        console.log('[Visitor] Chunk duplicato scartato:', seqs.join(','));
         return;
       }
 
-      if (seq === lastProcessedSeq + 1) {
-        enqueueAndSpeak(text, ts, currentLang, audioUrl, seq);
-        lastProcessedSeq = seq;
+      if (firstSeq <= lastProcessedSeq + 1) {
+        enqueueAndSpeak(text, ts, currentLang, audioUrl, firstSeq);
+        lastProcessedSeq = lastSeq;
+        for (const key of pendingChunks.keys()) {
+          if (key <= lastProcessedSeq) pendingChunks.delete(key);
+        }
         processPendingInOrder();
       } else {
-        pendingChunks.set(seq, { text, ts, audioUrl, receivedAt: Date.now() });
-        console.log(`[Visitor] Chunk #${seq} fuori ordine, in attesa (ultimo: ${lastProcessedSeq})`);
+        pendingChunks.set(firstSeq, { text, ts, audioUrl, seqs, receivedAt: Date.now() });
+        console.log(`[Visitor] Chunk #${seqs.join(',')} fuori ordine, in attesa (ultimo: ${lastProcessedSeq})`);
         scheduleProcessPending();
       }
     }
@@ -674,17 +692,23 @@
           const chunk = pendingChunks.get(nextExpected);
           pendingChunks.delete(nextExpected);
           enqueueAndSpeak(chunk.text, chunk.ts, currentLang, chunk.audioUrl, nextExpected);
-          lastProcessedSeq = nextExpected;
+          lastProcessedSeq = Math.max(...(chunk.seqs || [nextExpected]));
           if (pendingChunks.size > 0) scheduleProcessPending();
         } else if (pendingChunks.size > 0) {
           const oldest = Math.min(...pendingChunks.keys());
           if (oldest > nextExpected) {
-            console.warn('[Visitor] Chunk persi, salto a seq:', oldest - 1);
+            const oldestChunk = pendingChunks.get(oldest);
+            const waitedMs = Date.now() - (oldestChunk?.receivedAt || Date.now());
+            if (waitedMs < 1200) {
+              scheduleProcessPending();
+              return;
+            }
+            console.warn('[Visitor] Chunk mancanti, salto a seq:', oldest - 1);
             lastProcessedSeq = oldest - 1;
             scheduleProcessPending();
           }
         }
-      }, 280);
+      }, 180);
     }
 
     function processPendingInOrder() {
@@ -692,7 +716,7 @@
         const chunk = pendingChunks.get(lastProcessedSeq + 1);
         pendingChunks.delete(lastProcessedSeq + 1);
         enqueueAndSpeak(chunk.text, chunk.ts, currentLang, chunk.audioUrl, lastProcessedSeq + 1);
-        lastProcessedSeq++;
+        lastProcessedSeq = Math.max(...(chunk.seqs || [lastProcessedSeq + 1]));
       }
     }
 
@@ -899,10 +923,7 @@
       }
       updateStats();
 
-      // Micro-delay for first chunk after silence to avoid TTS cuts
-      if (!speaking && queue.length === 1) {
-        setTimeout(() => speakNext(lang), 40);
-      } else if (!speaking) {
+      if (!speaking) {
         speakNext(lang);
       }
     }
@@ -1010,7 +1031,7 @@
     document.getElementById('start').onclick = async () => {
       const lang = document.getElementById('lang').value;
       currentLang = lang;
-      lastProcessedSeq = -1;
+      lastProcessedSeq = 0;
       previewedSeqs.clear();
       pendingChunks.clear();
       console.log('[Visitor] Starting with language:', lang);
@@ -1037,7 +1058,7 @@
       if (pendingTimer)            { clearTimeout(pendingTimer);              pendingTimer             = null; }
       if (reconnectCountdownTimer) { clearInterval(reconnectCountdownTimer);  reconnectCountdownTimer  = null; }
       hideNoChunkWarning();
-      lastProcessedSeq = -1;
+      lastProcessedSeq = 0;
       previewedSeqs.clear();
       pendingChunks.clear();
       reconnectAttempts = 0;
