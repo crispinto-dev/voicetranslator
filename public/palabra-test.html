@@ -257,6 +257,7 @@
         <button class="danger" id="stopBtn" disabled>Stop</button>
         <button class="secondary" id="refreshDevicesBtn">Aggiorna dispositivi</button>
         <button class="secondary" id="testOutputBtn">Prova cuffie</button>
+        <button class="secondary" id="sendTaskBtn" disabled>Reinvia task</button>
         <button class="secondary" id="testPalabraVoiceBtn" disabled>Test voce Palabra</button>
         <button class="secondary" id="clearBtn">Pulisci log</button>
       </div>
@@ -308,6 +309,7 @@
       stopBtn: document.getElementById('stopBtn'),
       refreshDevicesBtn: document.getElementById('refreshDevicesBtn'),
       testOutputBtn: document.getElementById('testOutputBtn'),
+      sendTaskBtn: document.getElementById('sendTaskBtn'),
       testPalabraVoiceBtn: document.getElementById('testPalabraVoiceBtn'),
       clearBtn: document.getElementById('clearBtn'),
       status: document.getElementById('status'),
@@ -492,7 +494,7 @@
         data: buildTranslationSettings()
       };
       const message = new TextEncoder().encode(JSON.stringify(payload));
-      room.localParticipant.publishData(message, { reliable: true });
+      room.localParticipant.publishData(message, { reliable: true, topic: '' });
       log('Impostazioni traduzione inviate', payload.data);
     }
 
@@ -510,7 +512,7 @@
         }
       };
       const message = new TextEncoder().encode(JSON.stringify(payload));
-      room.localParticipant.publishData(message, { reliable: true });
+      room.localParticipant.publishData(message, { reliable: true, topic: '' });
       log('Test voce Palabra inviato', payload.data);
     }
 
@@ -621,6 +623,7 @@
           }
         }, 12000);
         els.stopBtn.disabled = false;
+        els.sendTaskBtn.disabled = false;
         els.testPalabraVoiceBtn.disabled = false;
         setStatus('Live - parla nel microfono', 'live');
       } catch (error) {
@@ -666,12 +669,13 @@
     async function stop(deleteRemoteSession = true) {
       els.stopBtn.disabled = true;
       els.startBtn.disabled = false;
+      els.sendTaskBtn.disabled = true;
       els.testPalabraVoiceBtn.disabled = true;
 
       try {
         if (room?.localParticipant) {
           const message = new TextEncoder().encode(JSON.stringify({ message_type: 'end_task', data: {} }));
-          room.localParticipant.publishData(message, { reliable: true });
+          room.localParticipant.publishData(message, { reliable: true, topic: '' });
         }
       } catch (_e) {}
 
@@ -711,6 +715,7 @@
     els.stopBtn.onclick = () => stop(true);
     els.refreshDevicesBtn.onclick = () => refreshDevices(true);
     els.testOutputBtn.onclick = () => testOutput().catch(error => log('Test cuffie fallito', { message: error.message }));
+    els.sendTaskBtn.onclick = publishTask;
     els.testPalabraVoiceBtn.onclick = publishPalabraVoiceTest;
     els.speakerDevice.onchange = () => applyOutputDevice().catch(error => log('Output cuffie non applicato', { message: error.message }));
     els.clearBtn.onclick = () => { els.log.textContent = ''; };
