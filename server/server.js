@@ -394,7 +394,10 @@ function buildPalabraTtsSettings(targetLanguage = 'en-us', voiceId = 'default_lo
           }
         }
       ],
-      allowed_message_types: ['translated_transcription']
+      allowed_message_types: [
+        'output_audio_data',
+        'translated_transcription'
+      ]
     }
   };
 }
@@ -439,9 +442,11 @@ app.post('/api/palabra/ws-tts-test', rateLimit(20, 60000), async (req, res) => {
             translate_text: false
           }
         };
+        const getTask = { message_type: 'get_task', data: {} };
 
         ws.send(JSON.stringify(setTask));
-        setTimeout(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(ttsTask)), 350);
+        setTimeout(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(getTask)), 250);
+        setTimeout(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(ttsTask)), 600);
       });
 
       ws.on('message', (raw) => {
