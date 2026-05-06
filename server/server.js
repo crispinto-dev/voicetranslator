@@ -19,6 +19,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ noServer: true });
+const palabraGuideWss = new WebSocketServer({ noServer: true });
+const palabraVisitorWss = new WebSocketServer({ noServer: true });
 
 const PORT = process.env.PORT || 3000;
 
@@ -665,6 +667,217 @@ wss.on('connection', (clientWs) => {
 
   clientWs.on('close', cleanup);
   clientWs.on('error', cleanup);
+});
+
+const palabraTour = {
+  guideWs: null,
+  palabraWs: null,
+  session: null,
+  visitors: new Set(),
+  started: false,
+  inboundChunks: 0,
+  outboundChunks: 0,
+  sourceLanguage: 'it',
+  targetLanguage: 'en-us',
+  voiceId: 'default_low'
+};
+
+function broadcastPalabraTour(payload, binary = false) {
+  for (const visitor of palabraTour.visitors) {
+    if (visitor.readyState === WebSocket.OPEN) {
+      visitor.send(payload, binary ? { binary: true } : undefined);
+    }
+  }
+}
+
+function broadcastPalabraTourJson(payload) {
+  broadcastPalabraTour(JSON.stringify(payload));
+}
+
+function stopPalabraTour(reason = 'stopped') {
+  try {
+    if (palabraTour.palabraWs && palabraTour.palabraWs.readyState === WebSocket.OPEN) {
+      palabraTour.palabraWs.send(JSON.stringify({ message_type: 'end_task', data: { force: true } }));
+      palabraTour.palabraWs.close();
+    }
+  } catch (_e) {}
+
+  if (palabraTour.session?.id) {
+    fetchWithTimeout(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(palabraTour.session.id)}`, {
+      method: 'DELETE',
+      headers: palabraHeaders(false)
+    }, 8000).catch(() => {});
+  }
+
+  palabraTour.palabraWs = null;
+  palabraTour.session = null;
+  palabraTour.started = false;
+  palabraTour.inboundChunks = 0;
+  palabraTour.outboundChunks = 0;
+  broadcastPalabraTourJson({ type: 'tour-stopped', reason });
+}
+
+function sendGuideJson(payload) {
+  if (palabraTour.guideWs?.readyState === WebSocket.OPEN) {
+    palabraTour.guideWs.send(JSON.stringify(payload));
+  }
+}
+
+palabraGuideWss.on('connection', (guideWs) => {
+  if (palabraTour.guideWs && palabraTour.guideWs.readyState === WebSocket.OPEN) {
+    guideWs.send(JSON.stringify({ type: 'error', error: 'Una guida Palabra e gia connessa' }));
+    guideWs.close();
+    return;
+  }
+
+  palabraTour.guideWs = guideWs;
+  sendGuideJson({ type: 'guide-connected', visitors: palabraTour.visitors.size });
+  broadcastPalabraTourJson({ type: 'guide-connected' });
+
+  guideWs.on('message', async (raw, isBinary) => {
+    try {
+      if (isBinary) {
+        if (!palabraTour.started || palabraTour.palabraWs?.readyState !== WebSocket.OPEN) return;
+        palabraTour.inboundChunks++;
+        palabraTour.palabraWs.send(JSON.stringify({
+          message_type: 'input_audio_data',
+          data: {
+            data: Buffer.from(raw).toString('base64')
+          }
+        }));
+        return;
+      }
+
+      const msg = JSON.parse(raw.toString('utf8'));
+      if (msg.type === 'start') {
+        stopPalabraTour('restarted');
+
+        palabraTour.sourceLanguage = String(msg.sourceLanguage || 'it');
+        palabraTour.targetLanguage = String(msg.targetLanguage || 'en-us');
+        palabraTour.voiceId = String(msg.voiceId || 'default_low');
+
+        palabraTour.session = await createPalabraSession();
+        const endpoint = `${palabraTour.session.ws_url}?token=${encodeURIComponent(palabraTour.session.publisher)}`;
+        palabraTour.palabraWs = new WebSocket(endpoint);
+
+        palabraTour.palabraWs.on('open', () => {
+          palabraTour.palabraWs.send(JSON.stringify({
+            message_type: 'set_task',
+            data: buildPalabraSpeechToSpeechSettings(
+              palabraTour.sourceLanguage,
+              palabraTour.targetLanguage,
+              palabraTour.voiceId
+            )
+          }));
+          palabraTour.started = true;
+          sendGuideJson({
+            type: 'ready',
+            room: palabraTour.session.webrtc_room_name,
+            visitors: palabraTour.visitors.size
+          });
+          broadcastPalabraTourJson({
+            type: 'tour-started',
+            sourceLanguage: palabraTour.sourceLanguage,
+            targetLanguage: palabraTour.targetLanguage
+          });
+        });
+
+        palabraTour.palabraWs.on('message', (palabraRaw) => {
+          const text = Buffer.isBuffer(palabraRaw) ? palabraRaw.toString('utf8') : String(palabraRaw);
+          let parsed = null;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            sendGuideJson({ type: 'palabra-raw', raw: text.substring(0, 300) });
+            return;
+          }
+
+          if (parsed.message_type === 'output_audio_data') {
+            const b64 = parsed.data?.data || parsed.data?.transcription?.data || '';
+            const audio = Buffer.from(String(b64), 'base64');
+            if (audio.length > 0) {
+              palabraTour.outboundChunks++;
+              broadcastPalabraTour(audio, true);
+            }
+            if (parsed.data?.last_chunk || parsed.data?.transcription?.last_chunk) {
+              broadcastPalabraTourJson({
+                type: 'audio-last-chunk',
+                inboundChunks: palabraTour.inboundChunks,
+                outboundChunks: palabraTour.outboundChunks
+              });
+            }
+            return;
+          }
+
+          if (parsed.message_type !== 'pipeline_timings') {
+            sendGuideJson({ type: 'palabra-message', message: parsed });
+            broadcastPalabraTourJson({ type: 'palabra-message', message: parsed });
+          }
+        });
+
+        palabraTour.palabraWs.on('close', (code, reason) => {
+          const payload = {
+            type: 'palabra-close',
+            code,
+            reason: reason?.toString?.() || '',
+            inboundChunks: palabraTour.inboundChunks,
+            outboundChunks: palabraTour.outboundChunks
+          };
+          sendGuideJson(payload);
+          broadcastPalabraTourJson(payload);
+          palabraTour.started = false;
+        });
+
+        palabraTour.palabraWs.on('error', (error) => {
+          const payload = { type: 'error', error: `Palabra WebSocket error: ${error.message}` };
+          sendGuideJson(payload);
+          broadcastPalabraTourJson(payload);
+        });
+      } else if (msg.type === 'stop') {
+        stopPalabraTour('guide-stopped');
+        sendGuideJson({ type: 'stopped' });
+      }
+    } catch (error) {
+      sendGuideJson({ type: 'error', error: error.message });
+    }
+  });
+
+  guideWs.on('close', () => {
+    if (palabraTour.guideWs === guideWs) {
+      stopPalabraTour('guide-disconnected');
+      palabraTour.guideWs = null;
+      broadcastPalabraTourJson({ type: 'guide-disconnected' });
+    }
+  });
+
+  guideWs.on('error', () => {
+    if (palabraTour.guideWs === guideWs) {
+      stopPalabraTour('guide-error');
+      palabraTour.guideWs = null;
+    }
+  });
+});
+
+palabraVisitorWss.on('connection', (visitorWs) => {
+  palabraTour.visitors.add(visitorWs);
+  sendGuideJson({ type: 'visitor-count', visitors: palabraTour.visitors.size });
+  visitorWs.send(JSON.stringify({
+    type: 'visitor-connected',
+    visitors: palabraTour.visitors.size,
+    tourStarted: palabraTour.started,
+    sourceLanguage: palabraTour.sourceLanguage,
+    targetLanguage: palabraTour.targetLanguage
+  }));
+
+  visitorWs.on('close', () => {
+    palabraTour.visitors.delete(visitorWs);
+    sendGuideJson({ type: 'visitor-count', visitors: palabraTour.visitors.size });
+  });
+
+  visitorWs.on('error', () => {
+    palabraTour.visitors.delete(visitorWs);
+    sendGuideJson({ type: 'visitor-count', visitors: palabraTour.visitors.size });
+  });
 });
 
 app.post('/api/palabra/ws-tts-test', rateLimit(20, 60000), async (req, res) => {
@@ -1656,14 +1869,31 @@ app.post('/ingest', rateLimit(240, 60000), (req, res) => {
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (url.pathname === '/palabra-live-ws') {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+    return;
+  }
+
+  if (url.pathname === '/palabra-guide-ws') {
+    palabraGuideWss.handleUpgrade(req, socket, head, (ws) => {
+      palabraGuideWss.emit('connection', ws, req);
+    });
+    return;
+  }
+
+  if (url.pathname === '/palabra-visitor-ws') {
+    palabraVisitorWss.handleUpgrade(req, socket, head, (ws) => {
+      palabraVisitorWss.emit('connection', ws, req);
+    });
+    return;
+  }
+
   if (url.pathname !== '/palabra-live-ws') {
     socket.destroy();
     return;
   }
-
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit('connection', ws, req);
-  });
 });
 
 server.listen(PORT, () => {
