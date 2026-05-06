@@ -12,6 +12,7 @@ export default defineConfig({
         app: resolve(__dirname, 'public/app.html'),
         guide: resolve(__dirname, 'public/guide.html'),
         guideInput: resolve(__dirname, 'public/guide-input.html'),
+        palabraTest: resolve(__dirname, 'public/palabra-test.html'),
         visitor: resolve(__dirname, 'public/visitor.html')
       }
     }
@@ -23,6 +24,7 @@ export default defineConfig({
     proxy: {
       ...Object.fromEntries([
         '/api',
+        '/api/palabra',
         '/ingest',
         '/sse',
         '/visitor-settings',

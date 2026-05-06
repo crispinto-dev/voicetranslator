@@ -235,6 +235,98 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// ==========================================
+// PALABRA TECHNICAL TEST
+// ==========================================
+
+function getPalabraCredentials() {
+  const clientId = process.env.PALABRA_CLIENT_ID;
+  const clientSecret = process.env.PALABRA_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error('PALABRA_CLIENT_ID and PALABRA_CLIENT_SECRET are required');
+  }
+  return { clientId, clientSecret };
+}
+
+function palabraHeaders() {
+  const { clientId, clientSecret } = getPalabraCredentials();
+  return {
+    'Content-Type': 'application/json',
+    ClientID: clientId,
+    ClientSecret: clientSecret
+  };
+}
+
+app.post('/api/palabra/session', rateLimit(20, 60000), async (_req, res) => {
+  try {
+    const response = await fetch('https://api.palabra.ai/session-storage/session', {
+      method: 'POST',
+      headers: palabraHeaders(),
+      body: JSON.stringify({
+        data: {
+          subscriber_count: 0,
+          publisher_can_subscribe: true
+        }
+      })
+    });
+
+    const bodyText = await response.text();
+    let payload = null;
+    try {
+      payload = bodyText ? JSON.parse(bodyText) : null;
+    } catch {
+      payload = { raw: bodyText };
+    }
+
+    if (!response.ok) {
+      console.error('[Palabra] Session creation failed:', response.status, bodyText.substring(0, 300));
+      return res.status(response.status).json({
+        ok: false,
+        error: 'Palabra session creation failed',
+        details: payload
+      });
+    }
+
+    const data = payload?.data || payload;
+    res.json({
+      ok: true,
+      data: {
+        id: data.id,
+        publisher: data.publisher,
+        webrtc_url: data.webrtc_url,
+        ws_url: data.ws_url,
+        webrtc_room_name: data.webrtc_room_name
+      }
+    });
+  } catch (error) {
+    console.error('[Palabra] Session error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.delete('/api/palabra/session/:id', rateLimit(60, 60000), async (req, res) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    if (!sessionId) return res.status(400).json({ ok: false, error: 'Missing session id' });
+
+    const response = await fetch(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+      headers: palabraHeaders()
+    });
+
+    if (response.status === 204 || response.status === 404) {
+      return res.json({ ok: true });
+    }
+
+    const bodyText = await response.text();
+    console.error('[Palabra] Session delete failed:', response.status, bodyText.substring(0, 300));
+    res.status(response.status).json({ ok: false, error: 'Palabra session delete failed' });
+  } catch (error) {
+    console.error('[Palabra] Session delete error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // Endpoint to generate ephemeral API key for Realtime API
 app.post('/api/realtime/token', rateLimit(5, 60000), async (req, res) => {
   try {
