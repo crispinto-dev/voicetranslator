@@ -235,11 +235,25 @@
           Buffer desiderato
           <input id="queueMs" type="number" min="500" max="12000" step="250" value="3500">
         </label>
+        <label>
+          Microfono input
+          <select id="micDevice">
+            <option value="">Default sistema</option>
+          </select>
+        </label>
+        <label>
+          Cuffie output
+          <select id="speakerDevice">
+            <option value="">Default sistema</option>
+          </select>
+        </label>
       </div>
 
       <div class="controls">
         <button class="primary" id="startBtn">Avvia test</button>
         <button class="danger" id="stopBtn" disabled>Stop</button>
+        <button class="secondary" id="refreshDevicesBtn">Aggiorna dispositivi</button>
+        <button class="secondary" id="testOutputBtn">Prova cuffie</button>
         <button class="secondary" id="clearBtn">Pulisci log</button>
       </div>
 
@@ -280,8 +294,12 @@
       targetLang: document.getElementById('targetLang'),
       voiceId: document.getElementById('voiceId'),
       queueMs: document.getElementById('queueMs'),
+      micDevice: document.getElementById('micDevice'),
+      speakerDevice: document.getElementById('speakerDevice'),
       startBtn: document.getElementById('startBtn'),
       stopBtn: document.getElementById('stopBtn'),
+      refreshDevicesBtn: document.getElementById('refreshDevicesBtn'),
+      testOutputBtn: document.getElementById('testOutputBtn'),
       clearBtn: document.getElementById('clearBtn'),
       status: document.getElementById('status'),
       sessionId: document.getElementById('sessionId'),
@@ -297,6 +315,7 @@
     let session = null;
     let remoteTrackCount = 0;
     let dataMessageCount = 0;
+    let remoteAudioTimeout = null;
 
     function setStatus(text, cls = '') {
       els.status.textContent = text;
@@ -307,6 +326,95 @@
       const now = new Date().toLocaleTimeString();
       const line = data ? `${now} ${message}\n${JSON.stringify(data, null, 2)}` : `${now} ${message}`;
       els.log.textContent = line + '\n\n' + els.log.textContent;
+    }
+
+    function setSelectOptions(selectEl, devices, fallbackLabel) {
+      const current = selectEl.value;
+      selectEl.innerHTML = `<option value="">${fallbackLabel}</option>`;
+      devices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `${fallbackLabel} ${index + 1}`;
+        selectEl.appendChild(option);
+      });
+      if ([...selectEl.options].some(option => option.value === current)) {
+        selectEl.value = current;
+      }
+    }
+
+    async function refreshDevices(requestPermission = false) {
+      try {
+        if (requestPermission) {
+          const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          tempStream.getTracks().forEach(track => track.stop());
+        }
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setSelectOptions(
+          els.micDevice,
+          devices.filter(device => device.kind === 'audioinput'),
+          'Default sistema'
+        );
+        setSelectOptions(
+          els.speakerDevice,
+          devices.filter(device => device.kind === 'audiooutput'),
+          'Default sistema'
+        );
+        log('Dispositivi aggiornati', {
+          microphones: els.micDevice.options.length - 1,
+          outputs: els.speakerDevice.options.length - 1,
+          outputSelectionSupported: typeof els.remoteAudio.setSinkId === 'function'
+        });
+      } catch (error) {
+        log('Impossibile leggere i dispositivi audio', { message: error.message });
+      }
+    }
+
+    async function applyOutputDevice(mediaEl = els.remoteAudio) {
+      if (!els.speakerDevice.value) return;
+      if (typeof mediaEl.setSinkId !== 'function') {
+        log('Selezione cuffie non supportata da questo browser');
+        return;
+      }
+      await mediaEl.setSinkId(els.speakerDevice.value);
+      log('Output audio selezionato', { deviceId: els.speakerDevice.value });
+    }
+
+    function createToneUrl() {
+      const sampleRate = 44100;
+      const durationSeconds = 0.45;
+      const samples = Math.floor(sampleRate * durationSeconds);
+      const buffer = new ArrayBuffer(44 + samples * 2);
+      const view = new DataView(buffer);
+      const writeString = (offset, value) => {
+        for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+      };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + samples * 2, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, samples * 2, true);
+      for (let i = 0; i < samples; i++) {
+        const envelope = Math.min(1, i / 2000, (samples - i) / 2000);
+        const sample = Math.sin(2 * Math.PI * 880 * i / sampleRate) * 0.28 * envelope;
+        view.setInt16(44 + i * 2, sample * 32767, true);
+      }
+      return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+    }
+
+    async function testOutput() {
+      const audio = new Audio(createToneUrl());
+      audio.volume = 0.8;
+      await applyOutputDevice(audio);
+      await audio.play();
+      log('Tono test inviato alle cuffie');
     }
 
     function buildTranslationSettings() {
@@ -402,10 +510,15 @@
 
         room.on(RoomEvent.TrackSubscribed, (track, publication) => {
           if (track.kind !== 'audio') return;
+          if (remoteAudioTimeout) {
+            clearTimeout(remoteAudioTimeout);
+            remoteAudioTimeout = null;
+          }
           remoteTrackCount++;
           els.remoteTracks.textContent = remoteTrackCount;
           const mediaStreamTrack = track.mediaStreamTrack;
           els.remoteAudio.srcObject = new MediaStream([mediaStreamTrack]);
+          applyOutputDevice().catch(err => log('Output cuffie non applicato', { message: err.message }));
           els.remoteAudio.play().catch(err => log('Playback audio bloccato dal browser', { message: err.message }));
           log('Audio tradotto ricevuto', { track: publication.trackName || publication.name || 'audio' });
         });
@@ -430,14 +543,17 @@
         log('Connesso alla room');
 
         setStatus('Attivazione microfono...');
-        micStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
+        const audioConstraints = {
             channelCount: 1,
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true
-          }
-        });
+        };
+        if (els.micDevice.value) {
+          audioConstraints.deviceId = { exact: els.micDevice.value };
+        }
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+        await refreshDevices(false);
         localTrack = new LocalAudioTrack(micStream.getAudioTracks()[0]);
         await room.localParticipant.publishTrack(localTrack, {
           dtx: false,
@@ -450,6 +566,13 @@
         log('Microfono pubblicato');
 
         publishTask();
+        remoteAudioTimeout = setTimeout(() => {
+          if (remoteTrackCount === 0) {
+            log('Nessun audio tradotto ricevuto dopo 12 secondi', {
+              hint: 'Controlla lingua parlata/tradotta, permesso microfono e log Palabra.'
+            });
+          }
+        }, 12000);
         els.stopBtn.disabled = false;
         setStatus('Live - parla nel microfono', 'live');
       } catch (error) {
@@ -483,6 +606,10 @@
         room = null;
       }
       els.remoteAudio.srcObject = null;
+      if (remoteAudioTimeout) {
+        clearTimeout(remoteAudioTimeout);
+        remoteAudioTimeout = null;
+      }
 
       if (deleteRemoteSession && session?.id) {
         fetch(`/api/palabra/session/${encodeURIComponent(session.id)}`, { method: 'DELETE' }).catch(() => {});
@@ -499,8 +626,12 @@
 
     els.startBtn.onclick = start;
     els.stopBtn.onclick = () => stop(true);
+    els.refreshDevicesBtn.onclick = () => refreshDevices(true);
+    els.testOutputBtn.onclick = () => testOutput().catch(error => log('Test cuffie fallito', { message: error.message }));
+    els.speakerDevice.onchange = () => applyOutputDevice().catch(error => log('Output cuffie non applicato', { message: error.message }));
     els.clearBtn.onclick = () => { els.log.textContent = ''; };
     window.addEventListener('beforeunload', () => { stop(true); });
+    refreshDevices(false);
   </script>
 </body>
 </html>
