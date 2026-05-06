@@ -406,6 +406,139 @@ function buildPalabraTtsSettings(targetLanguage = 'en-us', voiceId = 'default_lo
   };
 }
 
+function readPcm16Wav(filePath) {
+  const wav = fs.readFileSync(filePath);
+  if (wav.toString('ascii', 0, 4) !== 'RIFF' || wav.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('Input file must be a WAV file');
+  }
+
+  let offset = 12;
+  let fmt = null;
+  let dataStart = -1;
+  let dataSize = 0;
+
+  while (offset + 8 <= wav.length) {
+    const chunkId = wav.toString('ascii', offset, offset + 4);
+    const chunkSize = wav.readUInt32LE(offset + 4);
+    const chunkStart = offset + 8;
+
+    if (chunkId === 'fmt ') {
+      fmt = {
+        audioFormat: wav.readUInt16LE(chunkStart),
+        channels: wav.readUInt16LE(chunkStart + 2),
+        sampleRate: wav.readUInt32LE(chunkStart + 4),
+        bitsPerSample: wav.readUInt16LE(chunkStart + 14)
+      };
+    } else if (chunkId === 'data') {
+      dataStart = chunkStart;
+      dataSize = chunkSize;
+      break;
+    }
+
+    offset = chunkStart + chunkSize + (chunkSize % 2);
+  }
+
+  if (!fmt || dataStart < 0) throw new Error('WAV fmt/data chunks not found');
+  if (fmt.audioFormat !== 1 || fmt.bitsPerSample !== 16) {
+    throw new Error(`Unsupported WAV format: audioFormat=${fmt.audioFormat}, bits=${fmt.bitsPerSample}. Use PCM16 WAV.`);
+  }
+
+  const samples = [];
+  const frameCount = Math.floor(dataSize / (fmt.channels * 2));
+  for (let frame = 0; frame < frameCount; frame++) {
+    let sum = 0;
+    for (let ch = 0; ch < fmt.channels; ch++) {
+      sum += wav.readInt16LE(dataStart + (frame * fmt.channels + ch) * 2);
+    }
+    samples.push(Math.round(sum / fmt.channels));
+  }
+
+  return {
+    sampleRate: fmt.sampleRate,
+    samples
+  };
+}
+
+function resamplePcm16(samples, fromRate, toRate) {
+  if (fromRate === toRate) return samples;
+  const ratio = fromRate / toRate;
+  const outLength = Math.max(1, Math.floor(samples.length / ratio));
+  const out = new Array(outLength);
+
+  for (let i = 0; i < outLength; i++) {
+    const sourceIndex = i * ratio;
+    const leftIndex = Math.floor(sourceIndex);
+    const rightIndex = Math.min(samples.length - 1, leftIndex + 1);
+    const fraction = sourceIndex - leftIndex;
+    out[i] = Math.round(samples[leftIndex] * (1 - fraction) + samples[rightIndex] * fraction);
+  }
+
+  return out;
+}
+
+function pcm16SamplesToBuffer(samples) {
+  const buffer = Buffer.alloc(samples.length * 2);
+  samples.forEach((sample, index) => {
+    const clamped = Math.max(-32768, Math.min(32767, Math.round(sample)));
+    buffer.writeInt16LE(clamped, index * 2);
+  });
+  return buffer;
+}
+
+function writePcm16Wav(filePath, pcmBuffer, sampleRate = 24000, channels = 1) {
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcmBuffer.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * 2, 28);
+  header.writeUInt16LE(channels * 2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(pcmBuffer.length, 40);
+  fs.writeFileSync(filePath, Buffer.concat([header, pcmBuffer]));
+}
+
+function buildPalabraSpeechToSpeechSettings(sourceLanguage = 'it', targetLanguage = 'en-us', voiceId = 'default_low') {
+  return {
+    input_stream: {
+      content_type: 'audio',
+      source: {
+        type: 'ws',
+        format: 'pcm_s16le',
+        sample_rate: 16000,
+        channels: 1
+      }
+    },
+    output_stream: {
+      content_type: 'audio',
+      target: {
+        type: 'ws',
+        format: 'pcm_s16le'
+      }
+    },
+    pipeline: {
+      preprocessing: {},
+      transcription: {
+        source_language: sourceLanguage
+      },
+      translations: [
+        {
+          target_language: targetLanguage,
+          speech_generation: {
+            voice_cloning: false,
+            voice_id: voiceId
+          }
+        }
+      ]
+    }
+  };
+}
+
 app.post('/api/palabra/ws-tts-test', rateLimit(20, 60000), async (req, res) => {
   let ws = null;
   let session = null;
@@ -520,6 +653,162 @@ app.post('/api/palabra/ws-tts-test', rateLimit(20, 60000), async (req, res) => {
     });
   } catch (error) {
     console.error('[Palabra] WS TTS diagnostic failed:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  } finally {
+    if (session?.id) {
+      fetchWithTimeout(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(session.id)}`, {
+        method: 'DELETE',
+        headers: palabraHeaders(false)
+      }, 8000).catch(() => {});
+    }
+  }
+});
+
+app.post('/api/palabra/ws-file-test', rateLimit(10, 60000), async (req, res) => {
+  let ws = null;
+  let session = null;
+
+  try {
+    const inputPath = String(req.body?.inputPath || '/tmp/input-it.wav');
+    const outputPath = String(req.body?.outputPath || '/tmp/palabra-output-en.wav');
+    const sourceLanguage = String(req.body?.sourceLanguage || 'it');
+    const targetLanguage = String(req.body?.targetLanguage || 'en-us');
+    const voiceId = String(req.body?.voiceId || 'default_low');
+
+    const wav = readPcm16Wav(inputPath);
+    const inputSamples = resamplePcm16(wav.samples, wav.sampleRate, 16000);
+    const inputPcm = pcm16SamplesToBuffer(inputSamples);
+    const inputDurationMs = Math.round((inputSamples.length / 16000) * 1000);
+
+    session = await createPalabraSession();
+    if (!session.ws_url || !session.publisher) {
+      throw new Error('Palabra session is missing ws_url or publisher token');
+    }
+
+    const endpoint = `${session.ws_url}?token=${encodeURIComponent(session.publisher)}`;
+    const messages = [];
+    const audioBuffers = [];
+    let audioChunks = 0;
+    let audioBytes = 0;
+    let closed = null;
+    let audioSeen = false;
+
+    const result = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        resolve({ timedOut: true, phase: ws?.readyState === WebSocket.OPEN ? 'waiting_for_messages' : 'connecting' });
+      }, Math.max(20000, inputDurationMs + 10000));
+
+      ws = new WebSocket(endpoint);
+
+      ws.on('open', async () => {
+        try {
+          const setTask = {
+            message_type: 'set_task',
+            data: buildPalabraSpeechToSpeechSettings(sourceLanguage, targetLanguage, voiceId)
+          };
+          ws.send(JSON.stringify(setTask));
+
+          await new Promise(resolveDelay => setTimeout(resolveDelay, 800));
+
+          const chunkDurationMs = 320;
+          const bytesPerChunk = Math.floor(16000 * (chunkDurationMs / 1000)) * 2;
+          for (let offset = 0; offset < inputPcm.length && ws.readyState === WebSocket.OPEN; offset += bytesPerChunk) {
+            const chunk = inputPcm.subarray(offset, Math.min(inputPcm.length, offset + bytesPerChunk));
+            ws.send(JSON.stringify({
+              message_type: 'input_audio_data',
+              data: {
+                data: chunk.toString('base64')
+              }
+            }));
+            await new Promise(resolveDelay => setTimeout(resolveDelay, chunkDurationMs));
+          }
+        } catch (error) {
+          clearTimeout(timeout);
+          reject(error);
+        }
+      });
+
+      ws.on('message', (raw) => {
+        const value = Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw);
+        let parsed = null;
+        try {
+          parsed = JSON.parse(value);
+        } catch {
+          messages.push({ raw: value.substring(0, 300) });
+          return;
+        }
+
+        if (parsed.message_type === 'output_audio_data') {
+          const b64 = parsed.data?.data || parsed.data?.transcription?.data || '';
+          const audioBuffer = Buffer.from(String(b64), 'base64');
+          if (audioBuffer.length > 0) {
+            audioSeen = true;
+            audioChunks++;
+            audioBytes += audioBuffer.length;
+            audioBuffers.push(audioBuffer);
+          }
+          messages.push({
+            message_type: parsed.message_type,
+            bytes: audioBuffer.length,
+            last_chunk: parsed.data?.last_chunk ?? parsed.data?.transcription?.last_chunk ?? null
+          });
+          if (parsed.data?.last_chunk || parsed.data?.transcription?.last_chunk) {
+            clearTimeout(timeout);
+            resolve({ timedOut: false, lastChunk: true });
+          }
+          return;
+        }
+
+        messages.push(parsed);
+        if (parsed.message_type === 'error') {
+          clearTimeout(timeout);
+          resolve({ timedOut: false, error: parsed.data || parsed });
+        }
+      });
+
+      ws.on('close', (code, reason) => {
+        closed = { code, reason: reason?.toString?.() || '' };
+        clearTimeout(timeout);
+        resolve({ timedOut: false, closed, audioSeen });
+      });
+
+      ws.on('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+
+    try {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ message_type: 'end_task', data: { force: true } }));
+        ws.close();
+      }
+    } catch (_e) {}
+
+    if (audioBuffers.length > 0) {
+      writePcm16Wav(outputPath, Buffer.concat(audioBuffers), 24000, 1);
+    }
+
+    res.json({
+      ok: true,
+      input: {
+        path: inputPath,
+        originalSampleRate: wav.sampleRate,
+        durationMs: inputDurationMs,
+        bytesSent: inputPcm.length
+      },
+      output: {
+        path: outputPath,
+        written: audioBuffers.length > 0,
+        audioChunks,
+        audioBytes
+      },
+      closed,
+      result,
+      messages: messages.slice(-40)
+    });
+  } catch (error) {
+    console.error('[Palabra] WS file diagnostic failed:', error.message);
     res.status(500).json({ ok: false, error: error.message });
   } finally {
     if (session?.id) {
