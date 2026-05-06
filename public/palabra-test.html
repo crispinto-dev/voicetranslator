@@ -205,8 +205,10 @@
         <label>
           Lingua parlata
           <select id="sourceLang">
+            <option value="auto">Auto</option>
             <option value="it" selected>Italiano</option>
             <option value="en">English</option>
+            <option value="en-us">English US</option>
             <option value="es">Espanol</option>
             <option value="fr">Francais</option>
             <option value="de">Deutsch</option>
@@ -216,7 +218,8 @@
         <label>
           Lingua tradotta
           <select id="targetLang">
-            <option value="en" selected>English</option>
+            <option value="en-us" selected>English US</option>
+            <option value="en">English</option>
             <option value="it">Italiano</option>
             <option value="es">Espanol</option>
             <option value="fr">Francais</option>
@@ -272,6 +275,10 @@
           <span>Messaggi</span>
           <strong id="messageCount">0</strong>
         </div>
+        <div class="meter">
+          <span>Microfono</span>
+          <strong id="micLevel">0%</strong>
+        </div>
       </div>
 
       <audio id="remoteAudio" autoplay playsinline controls></audio>
@@ -305,6 +312,7 @@
       sessionId: document.getElementById('sessionId'),
       remoteTracks: document.getElementById('remoteTracks'),
       messageCount: document.getElementById('messageCount'),
+      micLevel: document.getElementById('micLevel'),
       remoteAudio: document.getElementById('remoteAudio'),
       log: document.getElementById('log')
     };
@@ -316,6 +324,8 @@
     let remoteTrackCount = 0;
     let dataMessageCount = 0;
     let remoteAudioTimeout = null;
+    let micAudioContext = null;
+    let micMeterTimer = null;
 
     function setStatus(text, cls = '') {
       els.status.textContent = text;
@@ -419,6 +429,7 @@
 
     function buildTranslationSettings() {
       const desiredQueueMs = Math.max(500, Math.min(12000, Number(els.queueMs.value) || 3500));
+      const sourceLanguage = els.sourceLang.value;
       return {
         input_stream: {
           content_type: 'audio',
@@ -430,8 +441,8 @@
         },
         pipeline: {
           transcription: {
-            source_language: els.sourceLang.value,
-            detectable_languages: [],
+            source_language: sourceLanguage,
+            detectable_languages: sourceLanguage === 'auto' ? ['it', 'en', 'en-us', 'es', 'fr', 'de', 'pt'] : [],
             segment_confirmation_silence_threshold: 0.7,
             sentence_splitter: { enabled: true },
             verification: {
@@ -554,6 +565,7 @@
         }
         micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         await refreshDevices(false);
+        startMicMeter(micStream);
         localTrack = new LocalAudioTrack(micStream.getAudioTracks()[0]);
         await room.localParticipant.publishTrack(localTrack, {
           dtx: false,
@@ -582,6 +594,39 @@
       }
     }
 
+    function startMicMeter(stream) {
+      stopMicMeter();
+      micAudioContext = new AudioContext();
+      const source = micAudioContext.createMediaStreamSource(stream);
+      const analyser = micAudioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      micMeterTimer = setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (const value of data) {
+          const centered = value - 128;
+          sum += centered * centered;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        const level = Math.min(100, Math.round(rms * 4));
+        els.micLevel.textContent = level + '%';
+      }, 120);
+    }
+
+    function stopMicMeter() {
+      if (micMeterTimer) {
+        clearInterval(micMeterTimer);
+        micMeterTimer = null;
+      }
+      if (micAudioContext) {
+        micAudioContext.close().catch(() => {});
+        micAudioContext = null;
+      }
+      els.micLevel.textContent = '0%';
+    }
+
     async function stop(deleteRemoteSession = true) {
       els.stopBtn.disabled = true;
       els.startBtn.disabled = false;
@@ -601,6 +646,7 @@
         micStream.getTracks().forEach(track => track.stop());
         micStream = null;
       }
+      stopMicMeter();
       if (room) {
         try { room.disconnect(); } catch (_e) {}
         room = null;
