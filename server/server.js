@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import crypto from 'crypto';
 import { Readable } from 'stream';
+import WebSocket from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -324,6 +325,189 @@ app.delete('/api/palabra/session/:id', rateLimit(60, 60000), async (req, res) =>
   } catch (error) {
     console.error('[Palabra] Session delete error:', error.message);
     res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+async function createPalabraSession() {
+  const response = await fetch('https://api.palabra.ai/session-storage/session', {
+    method: 'POST',
+    headers: palabraHeaders(),
+    body: JSON.stringify({
+      data: {
+        subscriber_count: 0,
+        publisher_can_subscribe: true
+      }
+    })
+  });
+
+  const bodyText = await response.text();
+  let payload = null;
+  try {
+    payload = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    payload = { raw: bodyText };
+  }
+
+  if (!response.ok) {
+    const details = typeof bodyText === 'string' ? bodyText.substring(0, 500) : payload;
+    throw new Error(`Palabra session creation failed (${response.status}): ${JSON.stringify(details)}`);
+  }
+
+  return payload?.data || payload;
+}
+
+function buildPalabraTtsSettings(targetLanguage = 'en-us', voiceId = 'default_low') {
+  return {
+    input_stream: null,
+    output_stream: {
+      content_type: 'audio',
+      target: {
+        type: 'ws',
+        format: 'pcm_s16le'
+      }
+    },
+    pipeline: {
+      transcription: null,
+      translations: [
+        {
+          target_language: targetLanguage,
+          translate_partial_transcriptions: false,
+          speech_generation: {
+            voice_cloning: false,
+            voice_id: voiceId,
+            voice_timbre_detection: {
+              enabled: false,
+              high_timbre_voices: ['default_high'],
+              low_timbre_voices: ['default_low']
+            }
+          }
+        }
+      ],
+      allowed_message_types: ['translated_transcription']
+    }
+  };
+}
+
+app.post('/api/palabra/ws-tts-test', rateLimit(20, 60000), async (req, res) => {
+  let ws = null;
+  let session = null;
+
+  try {
+    const targetLanguage = String(req.body?.targetLanguage || 'en-us');
+    const voiceId = String(req.body?.voiceId || 'default_low');
+    const text = String(req.body?.text || 'This is a Palabra WebSocket audio test.');
+
+    session = await createPalabraSession();
+    if (!session.ws_url || !session.publisher) {
+      throw new Error('Palabra session is missing ws_url or publisher token');
+    }
+
+    const endpoint = `${session.ws_url}?token=${encodeURIComponent(session.publisher)}`;
+    const messages = [];
+    let audioChunks = 0;
+    let audioBytes = 0;
+    let closed = null;
+
+    const result = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        resolve({ timedOut: true });
+      }, 12000);
+
+      ws = new WebSocket(endpoint);
+
+      ws.on('open', () => {
+        const setTask = {
+          message_type: 'set_task',
+          data: buildPalabraTtsSettings(targetLanguage, voiceId)
+        };
+        const ttsTask = {
+          message_type: 'tts_task',
+          data: {
+            text,
+            language: targetLanguage,
+            translate_text: false
+          }
+        };
+
+        ws.send(JSON.stringify(setTask));
+        setTimeout(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(ttsTask)), 350);
+      });
+
+      ws.on('message', (raw) => {
+        const value = Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw);
+        let parsed = null;
+        try {
+          parsed = JSON.parse(value);
+        } catch {
+          messages.push({ raw: value.substring(0, 300) });
+          return;
+        }
+
+        if (parsed.message_type === 'output_audio_data') {
+          const b64 = parsed.data?.data || parsed.data?.transcription?.data || '';
+          audioChunks++;
+          audioBytes += Math.round((String(b64).length * 3) / 4);
+          messages.push({
+            message_type: parsed.message_type,
+            language: parsed.data?.language || parsed.data?.transcription?.language || null,
+            last_chunk: parsed.data?.last_chunk ?? parsed.data?.transcription?.last_chunk ?? null,
+            bytes: Math.round((String(b64).length * 3) / 4)
+          });
+          if (parsed.data?.last_chunk || parsed.data?.transcription?.last_chunk) {
+            clearTimeout(timeout);
+            resolve({ timedOut: false });
+          }
+          return;
+        }
+
+        messages.push(parsed);
+        if (parsed.message_type === 'error') {
+          clearTimeout(timeout);
+          resolve({ timedOut: false, error: parsed.data || parsed });
+        }
+      });
+
+      ws.on('close', (code, reason) => {
+        closed = { code, reason: reason?.toString?.() || '' };
+        clearTimeout(timeout);
+        resolve({ timedOut: false, closed });
+      });
+
+      ws.on('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+
+    try {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ message_type: 'end_task', data: { force: true } }));
+        ws.close();
+      }
+    } catch (_e) {}
+
+    res.json({
+      ok: true,
+      session: {
+        room: session.webrtc_room_name,
+        hasWsUrl: Boolean(session.ws_url)
+      },
+      audioChunks,
+      audioBytes,
+      closed,
+      result,
+      messages: messages.slice(-25)
+    });
+  } catch (error) {
+    console.error('[Palabra] WS TTS diagnostic failed:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  } finally {
+    if (session?.id) {
+      fetch(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(session.id)}`, {
+        method: 'DELETE',
+        headers: palabraHeaders()
+      }).catch(() => {});
+    }
   }
 });
 

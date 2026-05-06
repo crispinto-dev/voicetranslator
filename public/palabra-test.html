@@ -259,6 +259,7 @@
         <button class="secondary" id="testOutputBtn">Prova cuffie</button>
         <button class="secondary" id="sendTaskBtn" disabled>Reinvia task</button>
         <button class="secondary" id="testPalabraVoiceBtn" disabled>Test voce Palabra</button>
+        <button class="secondary" id="wsDiagnosticBtn">Diagnosi WS</button>
         <button class="secondary" id="clearBtn">Pulisci log</button>
       </div>
 
@@ -311,6 +312,7 @@
       testOutputBtn: document.getElementById('testOutputBtn'),
       sendTaskBtn: document.getElementById('sendTaskBtn'),
       testPalabraVoiceBtn: document.getElementById('testPalabraVoiceBtn'),
+      wsDiagnosticBtn: document.getElementById('wsDiagnosticBtn'),
       clearBtn: document.getElementById('clearBtn'),
       status: document.getElementById('status'),
       sessionId: document.getElementById('sessionId'),
@@ -429,6 +431,27 @@
       await applyOutputDevice(audio);
       await audio.play();
       log('Tono test inviato alle cuffie');
+    }
+
+    async function runWsDiagnostic() {
+      els.wsDiagnosticBtn.disabled = true;
+      log('Diagnosi WebSocket Palabra avviata');
+      try {
+        const response = await fetch('/api/palabra/ws-tts-test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetLanguage: els.targetLang.value,
+            voiceId: els.voiceId.value
+          })
+        });
+        const payload = await response.json().catch(() => null);
+        log('Diagnosi WebSocket Palabra completata', payload || { status: response.status });
+      } catch (error) {
+        log('Diagnosi WebSocket Palabra fallita', { message: error.message });
+      } finally {
+        els.wsDiagnosticBtn.disabled = false;
+      }
     }
 
     function buildTranslationSettings() {
@@ -717,6 +740,7 @@
     els.testOutputBtn.onclick = () => testOutput().catch(error => log('Test cuffie fallito', { message: error.message }));
     els.sendTaskBtn.onclick = publishTask;
     els.testPalabraVoiceBtn.onclick = publishPalabraVoiceTest;
+    els.wsDiagnosticBtn.onclick = runWsDiagnostic;
     els.speakerDevice.onchange = () => applyOutputDevice().catch(error => log('Output cuffie non applicato', { message: error.message }));
     els.clearBtn.onclick = () => { els.log.textContent = ''; };
     window.addEventListener('beforeunload', () => { stop(true); });
