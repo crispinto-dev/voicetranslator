@@ -695,40 +695,41 @@
     const PRESETS = {
       simultaneous: {
         name: 'Simultaneo',
-        MICRO_MAX_CHARS: 100,
-        MICRO_MIN_CHARS: 20,
-        MICRO_FLUSH_MS: 650,
-        MIN_SEND_GAP_MS: 200,
-        STT_PAUSE_MS: 450
+        MICRO_MAX_CHARS: 160,
+        MICRO_MIN_CHARS: 45,
+        MICRO_FLUSH_MS: 900,
+        MIN_SEND_GAP_MS: 250,
+        STT_PAUSE_MS: 700
       },
       customer: {
         name: 'Cliente',
-        MICRO_MAX_CHARS: 110,
-        MICRO_MIN_CHARS: 20,
-        MICRO_FLUSH_MS: 550,
-        MIN_SEND_GAP_MS: 150,
-        STT_PAUSE_MS: 400
+        MICRO_MAX_CHARS: 220,
+        MICRO_MIN_CHARS: 55,
+        MICRO_FLUSH_MS: 1200,
+        MIN_SEND_GAP_MS: 300,
+        STT_PAUSE_MS: 900
       },
       balanced: {
         name: 'Equilibrato',
-        MICRO_MAX_CHARS: 140,
-        MICRO_MIN_CHARS: 35,
-        MICRO_FLUSH_MS: 900,
-        MIN_SEND_GAP_MS: 280,
-        STT_PAUSE_MS: 600
+        MICRO_MAX_CHARS: 240,
+        MICRO_MIN_CHARS: 70,
+        MICRO_FLUSH_MS: 1400,
+        MIN_SEND_GAP_MS: 350,
+        STT_PAUSE_MS: 1050
       },
       natural: {
         name: 'Naturale',
-        MICRO_MAX_CHARS: 200,
-        MICRO_MIN_CHARS: 50,
-        MICRO_FLUSH_MS: 1400,
-        MIN_SEND_GAP_MS: 350,
-        STT_PAUSE_MS: 800
+        MICRO_MAX_CHARS: 300,
+        MICRO_MIN_CHARS: 90,
+        MICRO_FLUSH_MS: 1800,
+        MIN_SEND_GAP_MS: 450,
+        STT_PAUSE_MS: 1300
       }
     };
 
     // Default VAD values (used by reset-to-preset)
-    const VAD_DEFAULTS = { threshold: 0.45, silenceDurationMs: 750 };
+    const VAD_DEFAULTS = { threshold: 0.35, silenceDurationMs: 1100 };
+    const PARAMS_VERSION = 'natural-speech-2026-05-06';
 
     class GuideInput {
       constructor() {
@@ -856,7 +857,7 @@
             sl: 'sttPause', label: 'Pausa STT',
             tip: 'Silenzio necessario per inviare il buffer al server',
             min: 200, max: 1500, step: 50, minLabel: '200ms', maxLabel: '1.5s',
-            presets: { simultaneous: 450, customer: 400, balanced: 600, natural: 800 },
+            presets: { simultaneous: 700, customer: 900, balanced: 1050, natural: 1300 },
             lsKey: 'gp_sttPause', fmt: v => v + 'ms',
             get: () => this.STT_PAUSE_MS,
             set: v => { this.STT_PAUSE_MS = v; }
@@ -864,8 +865,8 @@
           {
             sl: 'minChars', label: 'Min chunk',
             tip: 'Sotto questa soglia il testo attende più contenuto prima di inviare',
-            min: 10, max: 80, step: 5, minLabel: '10c', maxLabel: '80c',
-            presets: { simultaneous: 20, customer: 20, balanced: 35, natural: 50 },
+            min: 10, max: 120, step: 5, minLabel: '10c', maxLabel: '120c',
+            presets: { simultaneous: 45, customer: 55, balanced: 70, natural: 90 },
             lsKey: 'gp_minChars', fmt: v => v + 'c',
             get: () => this.MICRO_MIN_CHARS,
             set: v => { this.MICRO_MIN_CHARS = v; }
@@ -874,7 +875,7 @@
             sl: 'maxChars', label: 'Max chunk',
             tip: 'Raggiunta questa soglia, il buffer viene inviato immediatamente',
             min: 60, max: 300, step: 10, minLabel: '60c', maxLabel: '300c',
-            presets: { simultaneous: 100, customer: 110, balanced: 140, natural: 200 },
+            presets: { simultaneous: 160, customer: 220, balanced: 240, natural: 300 },
             lsKey: 'gp_maxChars', fmt: v => v + 'c',
             get: () => this.MICRO_MAX_CHARS,
             set: v => { this.MICRO_MAX_CHARS = v; }
@@ -883,7 +884,7 @@
             sl: 'flushMs', label: 'Flush timer',
             tip: 'Timer di sicurezza: invia il buffer anche se non arriva nuovo testo',
             min: 300, max: 2000, step: 50, minLabel: '300ms', maxLabel: '2s',
-            presets: { simultaneous: 650, customer: 550, balanced: 900, natural: 1400 },
+            presets: { simultaneous: 900, customer: 1200, balanced: 1400, natural: 1800 },
             lsKey: 'gp_flushMs', fmt: v => v + 'ms',
             get: () => this.MICRO_FLUSH_MS,
             set: v => { this.MICRO_FLUSH_MS = v; }
@@ -892,7 +893,7 @@
             sl: 'gapMs', label: 'Gap invii',
             tip: 'Intervallo minimo tra due POST consecutivi al server',
             min: 100, max: 500, step: 25, minLabel: '100ms', maxLabel: '500ms',
-            presets: { simultaneous: 200, customer: 150, balanced: 280, natural: 350 },
+            presets: { simultaneous: 250, customer: 300, balanced: 350, natural: 450 },
             lsKey: 'gp_gapMs', fmt: v => v + 'ms',
             get: () => this.MIN_SEND_GAP_MS,
             set: v => { this.MIN_SEND_GAP_MS = v; }
@@ -900,18 +901,18 @@
           {
             section: 'VAD OpenAI', vadSection: true,
             sl: 'vadThr', label: 'Soglia VAD',
-            tip: 'Più bassa = più sensibile al rumore. Default: 0.45',
+            tip: 'Più bassa = più sensibile al parlato morbido. Default: 0.35',
             min: 0.10, max: 0.90, step: 0.05, minLabel: '0.10', maxLabel: '0.90',
-            presets: { simultaneous: 0.45, customer: 0.45, balanced: 0.45, natural: 0.45 },
+            presets: { simultaneous: 0.35, customer: 0.35, balanced: 0.35, natural: 0.35 },
             lsKey: 'gp_vadThr', fmt: v => v.toFixed(2),
             get: () => this.vadThreshold,
             set: v => { this.vadThreshold = v; this._scheduleVADUpdate(); }
           },
           {
             sl: 'silDur', label: 'Silenzio VAD',
-            tip: 'Quanto silenzio per considerare finita la frase. Default: 750ms',
+            tip: 'Quanto silenzio per considerare finita la frase. Default: 1100ms',
             min: 300, max: 2000, step: 50, minLabel: '300ms', maxLabel: '2s',
-            presets: { simultaneous: 750, customer: 750, balanced: 750, natural: 750 },
+            presets: { simultaneous: 1100, customer: 1100, balanced: 1100, natural: 1100 },
             lsKey: 'gp_silDur', fmt: v => v + 'ms',
             get: () => this.silDurationMs,
             set: v => { this.silDurationMs = v; this._scheduleVADUpdate(); }
@@ -1102,6 +1103,21 @@
 
       // Load any localStorage overrides on top of the preset values
       _loadSavedParams() {
+        if (localStorage.getItem('gp_paramsVersion') !== PARAMS_VERSION) {
+          [
+            'gp_sttPause',
+            'gp_minChars',
+            'gp_maxChars',
+            'gp_flushMs',
+            'gp_gapMs',
+            'gp_vadThr',
+            'gp_silDur'
+          ].forEach(key => localStorage.removeItem(key));
+          localStorage.setItem('gp_paramsVersion', PARAMS_VERSION);
+          this._resetToPresetKey(this.currentPreset);
+          return;
+        }
+
         this._sliderDefs?.forEach(def => {
           const saved = localStorage.getItem(def.lsKey);
           if (saved !== null) {
@@ -1511,12 +1527,6 @@
                 this.lastSttActivityTime = Date.now();
                 this.gotDelta = true;
                 console.log('[Guide] 📝 STT delta:', deltaText);
-                this.microBuffer = (this.microBuffer || '') + rawDelta;
-                if (this.microBuffer.length >= this.MICRO_MAX_CHARS) {
-                  this.flushMicroBuffer('delta_max');
-                } else {
-                  this.scheduleMicroFlush();
-                }
               }
               break;
             }
@@ -1528,11 +1538,17 @@
 
               if (this.gotDelta) {
                 this.gotDelta = false;
-                if (/[.!?]$/.test(itText) && this.microBuffer) {
-                  this.flushMicroBuffer('punct_after_delta');
+                if (itText) {
+                  this.microBuffer = this.normalizeTranscriptText(itText);
+                  const endsStrong = /[.!?]$/.test(itText);
+                  if (endsStrong || this.microBuffer.length >= this.MICRO_MAX_CHARS) {
+                    this.flushMicroBuffer(endsStrong ? 'punct_after_delta' : 'completed_max');
+                  } else {
+                    this.scheduleMicroFlush();
+                  }
                 }
               } else if (itText) {
-                this.microBuffer = (this.microBuffer ? (this.microBuffer + ' ') : '') + itText;
+                this.microBuffer = this.normalizeTranscriptText((this.microBuffer ? (this.microBuffer + ' ') : '') + itText);
                 const endsStrong = /[.!?]$/.test(itText);
                 if (endsStrong || this.microBuffer.length >= this.MICRO_MAX_CHARS) {
                   this.flushMicroBuffer(endsStrong ? 'punct' : 'max_chars');
@@ -1570,6 +1586,29 @@
         }, this.MICRO_FLUSH_MS);
       }
 
+      normalizeTranscriptText(text) {
+        return (text || '')
+          .replace(/\s+/g, ' ')
+          .replace(/\bim\s+(?=[pbm][a-zàèéìòù]{3,})/gi, 'im')
+          .trim();
+      }
+
+      getLastToken(text) {
+        const match = (text || '').match(/[\p{L}À-ÖØ-öø-ÿ']+$/u);
+        return match ? match[0].toLowerCase() : '';
+      }
+
+      endsWithLikelyWordFragment(text) {
+        const token = this.getLastToken(text);
+        if (!token || token.length > 5) return false;
+        const safeShortWords = new Set([
+          'e', 'o', 'ma', 'se', 'di', 'a', 'da', 'in', 'su', 'per', 'tra', 'fra',
+          'un', 'una', 'uno', 'il', 'lo', 'la', 'i', 'gli', 'le', 'al', 'del',
+          'nel', 'sul', 'che', 'non', 'con', 'the', 'and', 'but', 'or', 'to', 'of'
+        ]);
+        return !safeShortWords.has(token);
+      }
+
       splitIntoMicroChunks(text) {
         const parts = text
           .replace(/\s+/g, ' ')
@@ -1580,7 +1619,7 @@
       }
 
       flushMicroBuffer(reason = 'manual') {
-        const buf = (this.microBuffer || '').trim();
+        const buf = this.normalizeTranscriptText(this.microBuffer);
         if (!buf) return;
 
         const endsStrong = /[.!?]$/.test(buf);
@@ -1592,6 +1631,12 @@
         const badEnding = /\b(e|ma|perché|quindi|che|di|a|da|in|con|su|per|tra|fra|un|una|il|lo|la|i|gli|le|al|del|nel|the|and|but|or|to|of)\s*$/i;
         if (!endsStrong && badEnding.test(buf) && buf.length < this.MICRO_MAX_CHARS) {
           console.log('[Guide] Bad ending, waiting for more text');
+          this.scheduleMicroFlush();
+          return;
+        }
+
+        if (!endsStrong && this.endsWithLikelyWordFragment(buf) && buf.length < this.MICRO_MAX_CHARS) {
+          console.log('[Guide] Likely word fragment, waiting for completion:', this.getLastToken(buf));
           this.scheduleMicroFlush();
           return;
         }

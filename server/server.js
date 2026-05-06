@@ -969,11 +969,54 @@ const ttsMergeBuffers = new Map();
 
 // Small window just to coalesce bursts from network jitter.
 // The guide already does micro-chunking, so a large debounce is redundant.
-const DEBOUNCE_MS  = 20;
+const DEBOUNCE_MS  = 450;
 // Absolute safety valve: if a batch hasn't been flushed in 3s, force it.
-const MAX_WAIT_MS  = 3000;
+const MAX_WAIT_MS  = 2200;
 const TTS_MERGE_MS = 40;
 const TTS_MERGE_MAX_ITEMS = 3;
+
+function endsWithSentencePunctuation(text) {
+  return /[.!?:;]$/.test(String(text || '').trim());
+}
+
+function getLastWord(text) {
+  const match = String(text || '').trim().match(/[\p{L}À-ÖØ-öø-ÿ']+$/u);
+  return match ? match[0].toLowerCase() : '';
+}
+
+function getFirstWord(text) {
+  const match = String(text || '').trim().match(/^[\p{L}À-ÖØ-öø-ÿ']+/u);
+  return match ? match[0].toLowerCase() : '';
+}
+
+function shouldJoinWithoutSpace(previous, next) {
+  if (!previous || !next || endsWithSentencePunctuation(previous)) return false;
+
+  const first = getFirstWord(next);
+  if (!first || first[0] !== first[0].toLowerCase()) return false;
+
+  const last = getLastWord(previous);
+  if (!last || last.length > 5) return false;
+
+  const safeShortWords = new Set([
+    'e', 'o', 'ma', 'se', 'di', 'a', 'da', 'in', 'su', 'per', 'tra', 'fra',
+    'un', 'una', 'uno', 'il', 'lo', 'la', 'i', 'gli', 'le', 'al', 'del',
+    'nel', 'sul', 'che', 'non', 'con', 'the', 'and', 'but', 'or', 'to', 'of'
+  ]);
+
+  return !safeShortWords.has(last);
+}
+
+function smartJoinSourceTexts(texts) {
+  return texts.reduce((joined, text) => {
+    const current = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!current) return joined;
+    if (!joined) return current;
+    return shouldJoinWithoutSpace(joined, current)
+      ? joined + current
+      : joined + ' ' + current;
+  }, '').replace(/\bim\s+(?=[pbm][a-zàèéìòù]{3,})/gi, 'im');
+}
 
 async function flushLang(lk) {
   // Cancel the debounce timer if it fired us (no-op if called by maxTimer)
@@ -994,7 +1037,7 @@ async function flushLang(lk) {
     .filter(seq => Number.isFinite(seq));
   const firstSeq = seqs.length ? Math.min(...seqs) : batch.seq;
   const mergedSeqs = seqs.length > 1 ? seqs : null;
-  const combinedText = items.map(item => item.sourceText).join(' ');
+  const combinedText = smartJoinSourceTexts(items.map(item => item.sourceText));
   console.log(`[Ingest] Translating ${items.length} chunk(s) → ${lk}: "${combinedText.substring(0, 80)}"`);
 
   // Serialize: wait for any in-progress translation for this language before starting a new one.
