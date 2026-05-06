@@ -395,8 +395,10 @@ function buildPalabraTtsSettings(targetLanguage = 'en-us', voiceId = 'default_lo
         }
       ],
       allowed_message_types: [
-        'output_audio_data',
-        'translated_transcription'
+        'translated_transcription',
+        'tts_text',
+        'tts_buffer_stats',
+        'pipeline_timings'
       ]
     }
   };
