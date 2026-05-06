@@ -257,6 +257,7 @@
         <button class="danger" id="stopBtn" disabled>Stop</button>
         <button class="secondary" id="refreshDevicesBtn">Aggiorna dispositivi</button>
         <button class="secondary" id="testOutputBtn">Prova cuffie</button>
+        <button class="secondary" id="testPalabraVoiceBtn" disabled>Test voce Palabra</button>
         <button class="secondary" id="clearBtn">Pulisci log</button>
       </div>
 
@@ -307,6 +308,7 @@
       stopBtn: document.getElementById('stopBtn'),
       refreshDevicesBtn: document.getElementById('refreshDevicesBtn'),
       testOutputBtn: document.getElementById('testOutputBtn'),
+      testPalabraVoiceBtn: document.getElementById('testPalabraVoiceBtn'),
       clearBtn: document.getElementById('clearBtn'),
       status: document.getElementById('status'),
       sessionId: document.getElementById('sessionId'),
@@ -494,6 +496,24 @@
       log('Impostazioni traduzione inviate', payload.data);
     }
 
+    function publishPalabraVoiceTest() {
+      if (!room?.localParticipant) {
+        log('Test voce Palabra non disponibile: room non connessa');
+        return;
+      }
+      const payload = {
+        message_type: 'tts_task',
+        data: {
+          text: 'This is a Palabra audio output test.',
+          language: els.targetLang.value,
+          translate_text: false
+        }
+      };
+      const message = new TextEncoder().encode(JSON.stringify(payload));
+      room.localParticipant.publishData(message, { reliable: true });
+      log('Test voce Palabra inviato', payload.data);
+    }
+
     async function createPalabraSession() {
       const response = await fetch('/api/palabra/session', { method: 'POST' });
       const payload = await response.json().catch(() => null);
@@ -518,6 +538,21 @@
 
         setStatus('Connessione WebRTC...');
         room = new Room({ adaptiveStream: false, dynacast: false });
+
+        room.on(RoomEvent.LocalTrackPublished, (publication) => {
+          log('Traccia locale pubblicata', {
+            kind: publication.kind,
+            name: publication.trackName || publication.name || ''
+          });
+        });
+
+        room.on(RoomEvent.TrackPublished, (publication, participant) => {
+          log('Traccia remota annunciata', {
+            participant: participant?.identity || '',
+            kind: publication.kind,
+            name: publication.trackName || publication.name || ''
+          });
+        });
 
         room.on(RoomEvent.TrackSubscribed, (track, publication) => {
           if (track.kind !== 'audio') return;
@@ -545,9 +580,9 @@
           }
         });
 
-        room.on(RoomEvent.Disconnected, () => {
+        room.on(RoomEvent.Disconnected, (reason) => {
           setStatus('Disconnesso');
-          log('Room disconnessa');
+          log('Room disconnessa', { reason: reason || 'unknown' });
         });
 
         await room.connect(session.webrtc_url, session.publisher, { autoSubscribe: true });
@@ -586,6 +621,7 @@
           }
         }, 12000);
         els.stopBtn.disabled = false;
+        els.testPalabraVoiceBtn.disabled = false;
         setStatus('Live - parla nel microfono', 'live');
       } catch (error) {
         log('Errore', { message: error.message });
@@ -630,6 +666,7 @@
     async function stop(deleteRemoteSession = true) {
       els.stopBtn.disabled = true;
       els.startBtn.disabled = false;
+      els.testPalabraVoiceBtn.disabled = true;
 
       try {
         if (room?.localParticipant) {
@@ -674,6 +711,7 @@
     els.stopBtn.onclick = () => stop(true);
     els.refreshDevicesBtn.onclick = () => refreshDevices(true);
     els.testOutputBtn.onclick = () => testOutput().catch(error => log('Test cuffie fallito', { message: error.message }));
+    els.testPalabraVoiceBtn.onclick = publishPalabraVoiceTest;
     els.speakerDevice.onchange = () => applyOutputDevice().catch(error => log('Output cuffie non applicato', { message: error.message }));
     els.clearBtn.onclick = () => { els.log.textContent = ''; };
     window.addEventListener('beforeunload', () => { stop(true); });
