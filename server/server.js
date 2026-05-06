@@ -11,12 +11,14 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { Readable } from 'stream';
 import WebSocket from 'ws';
+import { WebSocketServer } from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = createServer(app);
+const wss = new WebSocketServer({ noServer: true });
 
 const PORT = process.env.PORT || 3000;
 
@@ -538,6 +540,132 @@ function buildPalabraSpeechToSpeechSettings(sourceLanguage = 'it', targetLanguag
     }
   };
 }
+
+function sendClientJson(ws, payload) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  }
+}
+
+wss.on('connection', (clientWs) => {
+  let palabraWs = null;
+  let session = null;
+  let started = false;
+  let inboundChunks = 0;
+  let outboundChunks = 0;
+
+  const cleanup = () => {
+    try {
+      if (palabraWs && palabraWs.readyState === WebSocket.OPEN) {
+        palabraWs.send(JSON.stringify({ message_type: 'end_task', data: { force: true } }));
+        palabraWs.close();
+      }
+    } catch (_e) {}
+
+    if (session?.id) {
+      fetchWithTimeout(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(session.id)}`, {
+        method: 'DELETE',
+        headers: palabraHeaders(false)
+      }, 8000).catch(() => {});
+    }
+
+    palabraWs = null;
+    session = null;
+    started = false;
+  };
+
+  clientWs.on('message', async (raw, isBinary) => {
+    try {
+      if (isBinary) {
+        if (!palabraWs || palabraWs.readyState !== WebSocket.OPEN || !started) return;
+        inboundChunks++;
+        palabraWs.send(JSON.stringify({
+          message_type: 'input_audio_data',
+          data: {
+            data: Buffer.from(raw).toString('base64')
+          }
+        }));
+        return;
+      }
+
+      const msg = JSON.parse(raw.toString('utf8'));
+
+      if (msg.type === 'start') {
+        cleanup();
+
+        const sourceLanguage = String(msg.sourceLanguage || 'it');
+        const targetLanguage = String(msg.targetLanguage || 'en-us');
+        const voiceId = String(msg.voiceId || 'default_low');
+
+        session = await createPalabraSession();
+        const endpoint = `${session.ws_url}?token=${encodeURIComponent(session.publisher)}`;
+        palabraWs = new WebSocket(endpoint);
+
+        palabraWs.on('open', () => {
+          const setTask = {
+            message_type: 'set_task',
+            data: buildPalabraSpeechToSpeechSettings(sourceLanguage, targetLanguage, voiceId)
+          };
+          palabraWs.send(JSON.stringify(setTask));
+          started = true;
+          sendClientJson(clientWs, {
+            type: 'ready',
+            room: session.webrtc_room_name,
+            sampleRate: 24000
+          });
+        });
+
+        palabraWs.on('message', (palabraRaw) => {
+          const text = Buffer.isBuffer(palabraRaw) ? palabraRaw.toString('utf8') : String(palabraRaw);
+          let parsed = null;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            sendClientJson(clientWs, { type: 'palabra-raw', raw: text.substring(0, 300) });
+            return;
+          }
+
+          if (parsed.message_type === 'output_audio_data') {
+            const b64 = parsed.data?.data || parsed.data?.transcription?.data || '';
+            const audio = Buffer.from(String(b64), 'base64');
+            if (audio.length > 0 && clientWs.readyState === WebSocket.OPEN) {
+              outboundChunks++;
+              clientWs.send(audio, { binary: true });
+            }
+            if (parsed.data?.last_chunk || parsed.data?.transcription?.last_chunk) {
+              sendClientJson(clientWs, { type: 'audio-last-chunk', inboundChunks, outboundChunks });
+            }
+            return;
+          }
+
+          sendClientJson(clientWs, { type: 'palabra-message', message: parsed });
+        });
+
+        palabraWs.on('close', (code, reason) => {
+          sendClientJson(clientWs, {
+            type: 'palabra-close',
+            code,
+            reason: reason?.toString?.() || '',
+            inboundChunks,
+            outboundChunks
+          });
+        });
+
+        palabraWs.on('error', (error) => {
+          sendClientJson(clientWs, { type: 'error', error: `Palabra WebSocket error: ${error.message}` });
+        });
+      } else if (msg.type === 'stop') {
+        cleanup();
+        sendClientJson(clientWs, { type: 'stopped', inboundChunks, outboundChunks });
+      }
+    } catch (error) {
+      sendClientJson(clientWs, { type: 'error', error: error.message });
+    }
+  });
+
+  clientWs.on('close', cleanup);
+  clientWs.on('error', cleanup);
+});
 
 app.post('/api/palabra/ws-tts-test', rateLimit(20, 60000), async (req, res) => {
   let ws = null;
@@ -1524,6 +1652,18 @@ app.post('/ingest', rateLimit(240, 60000), (req, res) => {
   const old = timerByLang.get(lk);
   if (old) clearTimeout(old);
   timerByLang.set(lk, setTimeout(() => flushLang(lk), DEBOUNCE_MS));
+});
+
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  if (url.pathname !== '/palabra-live-ws') {
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
 });
 
 server.listen(PORT, () => {

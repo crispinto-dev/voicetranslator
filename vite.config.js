@@ -12,6 +12,7 @@ export default defineConfig({
         app: resolve(__dirname, 'public/app.html'),
         guide: resolve(__dirname, 'public/guide.html'),
         guideInput: resolve(__dirname, 'public/guide-input.html'),
+        palabraLive: resolve(__dirname, 'public/palabra-live.html'),
         palabraTest: resolve(__dirname, 'public/palabra-test.html'),
         visitor: resolve(__dirname, 'public/visitor.html')
       }

@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Palabra Live - Single Device</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      padding: 24px;
+      background: #eef2f7;
+      color: #172033;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      display: grid;
+      gap: 18px;
+    }
+    h1 { font-size: 26px; letter-spacing: 0; }
+    .panel {
+      background: #fff;
+      border: 1px solid #d8dee9;
+      border-radius: 8px;
+      padding: 18px;
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    label {
+      display: grid;
+      gap: 6px;
+      color: #4b5563;
+      font-size: 13px;
+      font-weight: 650;
+    }
+    select {
+      min-height: 42px;
+      padding: 9px 11px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      color: #111827;
+      font: inherit;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    button {
+      min-height: 42px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 750;
+    }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .primary { background: #2563eb; color: #fff; }
+    .danger { background: #dc2626; color: #fff; }
+    .secondary { background: #e5e7eb; color: #1f2937; }
+    .status {
+      margin-top: 14px;
+      padding: 11px 12px;
+      border-radius: 6px;
+      background: #f3f4f6;
+      color: #4b5563;
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .status.live { background: #dcfce7; color: #166534; }
+    .status.error { background: #fee2e2; color: #991b1b; }
+    .meters {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .meter {
+      padding: 12px;
+      border-radius: 8px;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+    }
+    .meter span {
+      display: block;
+      color: #64748b;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .meter strong { font-size: 18px; color: #0f172a; }
+    .log {
+      height: 260px;
+      overflow: auto;
+      padding: 12px;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #dbeafe;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    @media (max-width: 820px) {
+      body { padding: 16px; }
+      .grid, .meters { grid-template-columns: 1fr; }
+      .controls { flex-direction: column; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Palabra Live - Single Device</h1>
+
+    <section class="panel">
+      <div class="grid">
+        <label>
+          Lingua parlata
+          <select id="sourceLang">
+            <option value="it" selected>Italiano</option>
+            <option value="en">English</option>
+            <option value="es">Espanol</option>
+            <option value="fr">Francais</option>
+            <option value="de">Deutsch</option>
+          </select>
+        </label>
+        <label>
+          Lingua tradotta
+          <select id="targetLang">
+            <option value="en-us" selected>English US</option>
+            <option value="it">Italiano</option>
+            <option value="es">Espanol</option>
+            <option value="fr">Francais</option>
+            <option value="de">Deutsch</option>
+          </select>
+        </label>
+        <label>
+          Voce
+          <select id="voiceId">
+            <option value="default_low" selected>Default low</option>
+            <option value="default_high">Default high</option>
+          </select>
+        </label>
+        <label>
+          Microfono input
+          <select id="micDevice"><option value="">Default sistema</option></select>
+        </label>
+        <label>
+          Cuffie output
+          <select id="speakerDevice"><option value="">Default sistema</option></select>
+        </label>
+      </div>
+
+      <div class="controls">
+        <button class="primary" id="startBtn">Avvia live</button>
+        <button class="danger" id="stopBtn" disabled>Stop</button>
+        <button class="secondary" id="refreshDevicesBtn">Aggiorna dispositivi</button>
+        <button class="secondary" id="testOutputBtn">Prova cuffie</button>
+      </div>
+
+      <div class="status" id="status">Pronto</div>
+
+      <div class="meters">
+        <div class="meter"><span>Microfono</span><strong id="micLevel">0%</strong></div>
+        <div class="meter"><span>Input chunks</span><strong id="inputChunks">0</strong></div>
+        <div class="meter"><span>Audio chunks</span><strong id="audioChunks">0</strong></div>
+        <div class="meter"><span>Buffer audio</span><strong id="audioBuffer">0 ms</strong></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="log" id="log"></div>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      sourceLang: document.getElementById('sourceLang'),
+      targetLang: document.getElementById('targetLang'),
+      voiceId: document.getElementById('voiceId'),
+      micDevice: document.getElementById('micDevice'),
+      speakerDevice: document.getElementById('speakerDevice'),
+      startBtn: document.getElementById('startBtn'),
+      stopBtn: document.getElementById('stopBtn'),
+      refreshDevicesBtn: document.getElementById('refreshDevicesBtn'),
+      testOutputBtn: document.getElementById('testOutputBtn'),
+      status: document.getElementById('status'),
+      micLevel: document.getElementById('micLevel'),
+      inputChunks: document.getElementById('inputChunks'),
+      audioChunks: document.getElementById('audioChunks'),
+      audioBuffer: document.getElementById('audioBuffer'),
+      log: document.getElementById('log')
+    };
+
+    let ws = null;
+    let inputStream = null;
+    let inputContext = null;
+    let inputProcessor = null;
+    let inputSource = null;
+    let outputContext = null;
+    let outputGain = null;
+    let nextPlaybackTime = 0;
+    let inputChunkCount = 0;
+    let audioChunkCount = 0;
+    let meterTimer = null;
+    let meterLevel = 0;
+
+    function setStatus(text, cls = '') {
+      els.status.textContent = text;
+      els.status.className = 'status' + (cls ? ' ' + cls : '');
+    }
+
+    function log(message, data = null) {
+      const now = new Date().toLocaleTimeString();
+      const line = data ? `${now} ${message}\n${JSON.stringify(data, null, 2)}` : `${now} ${message}`;
+      els.log.textContent = line + '\n\n' + els.log.textContent;
+    }
+
+    function setSelectOptions(selectEl, devices, label) {
+      const current = selectEl.value;
+      selectEl.innerHTML = `<option value="">${label}</option>`;
+      devices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `${label} ${index + 1}`;
+        selectEl.appendChild(option);
+      });
+      if ([...selectEl.options].some(option => option.value === current)) {
+        selectEl.value = current;
+      }
+    }
+
+    async function refreshDevices(requestPermission = false) {
+      if (requestPermission) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setSelectOptions(els.micDevice, devices.filter(d => d.kind === 'audioinput'), 'Default sistema');
+      setSelectOptions(els.speakerDevice, devices.filter(d => d.kind === 'audiooutput'), 'Default sistema');
+      log('Dispositivi aggiornati', {
+        microphones: els.micDevice.options.length - 1,
+        outputs: els.speakerDevice.options.length - 1,
+        outputSelectionSupported: typeof AudioContext.prototype.setSinkId === 'function'
+      });
+    }
+
+    async function applyOutputDevice() {
+      if (!outputContext || !els.speakerDevice.value) return;
+      if (typeof outputContext.setSinkId !== 'function') {
+        log('Selezione cuffie non supportata da questo browser');
+        return;
+      }
+      await outputContext.setSinkId(els.speakerDevice.value);
+      log('Output audio selezionato', { deviceId: els.speakerDevice.value });
+    }
+
+    function createToneBuffer(context) {
+      const duration = 0.45;
+      const buffer = context.createBuffer(1, Math.floor(context.sampleRate * duration), context.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        const envelope = Math.min(1, i / 2000, (data.length - i) / 2000);
+        data[i] = Math.sin(2 * Math.PI * 880 * i / context.sampleRate) * 0.25 * envelope;
+      }
+      return buffer;
+    }
+
+    async function testOutput() {
+      outputContext = outputContext || new AudioContext({ sampleRate: 24000 });
+      await outputContext.resume();
+      await applyOutputDevice();
+      const source = outputContext.createBufferSource();
+      source.buffer = createToneBuffer(outputContext);
+      source.connect(outputContext.destination);
+      source.start();
+      log('Tono test inviato alle cuffie');
+    }
+
+    function downsampleTo16k(float32, sourceRate) {
+      if (sourceRate === 16000) return float32;
+      const ratio = sourceRate / 16000;
+      const length = Math.floor(float32.length / ratio);
+      const out = new Float32Array(length);
+      for (let i = 0; i < length; i++) {
+        const start = Math.floor(i * ratio);
+        const end = Math.min(float32.length, Math.floor((i + 1) * ratio));
+        let sum = 0;
+        for (let j = start; j < end; j++) sum += float32[j];
+        out[i] = sum / Math.max(1, end - start);
+      }
+      return out;
+    }
+
+    function floatToPcm16(float32) {
+      const buffer = new ArrayBuffer(float32.length * 2);
+      const view = new DataView(buffer);
+      for (let i = 0; i < float32.length; i++) {
+        const sample = Math.max(-1, Math.min(1, float32[i]));
+        view.setInt16(i * 2, sample < 0 ? sample * 32768 : sample * 32767, true);
+      }
+      return buffer;
+    }
+
+    function pcm16ToFloat32(arrayBuffer) {
+      const view = new DataView(arrayBuffer);
+      const samples = new Float32Array(arrayBuffer.byteLength / 2);
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = view.getInt16(i * 2, true) / 32768;
+      }
+      return samples;
+    }
+
+    function scheduleOutputAudio(arrayBuffer) {
+      if (!outputContext || arrayBuffer.byteLength === 0) return;
+      const samples = pcm16ToFloat32(arrayBuffer);
+      const audioBuffer = outputContext.createBuffer(1, samples.length, 24000);
+      audioBuffer.copyToChannel(samples, 0);
+      const source = outputContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(outputGain || outputContext.destination);
+      const now = outputContext.currentTime;
+      nextPlaybackTime = Math.max(nextPlaybackTime, now + 0.08);
+      source.start(nextPlaybackTime);
+      nextPlaybackTime += audioBuffer.duration;
+      audioChunkCount++;
+      els.audioChunks.textContent = audioChunkCount;
+      els.audioBuffer.textContent = Math.max(0, Math.round((nextPlaybackTime - now) * 1000)) + ' ms';
+    }
+
+    async function start() {
+      try {
+        els.startBtn.disabled = true;
+        setStatus('Connessione Palabra...');
+
+        outputContext = new AudioContext({ sampleRate: 24000 });
+        outputGain = outputContext.createGain();
+        outputGain.connect(outputContext.destination);
+        await outputContext.resume();
+        await applyOutputDevice();
+
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${location.host}/palabra-live-ws`);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            type: 'start',
+            sourceLanguage: els.sourceLang.value,
+            targetLanguage: els.targetLang.value,
+            voiceId: els.voiceId.value
+          }));
+        };
+
+        ws.onmessage = (event) => {
+          if (event.data instanceof ArrayBuffer) {
+            scheduleOutputAudio(event.data);
+            return;
+          }
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'ready') {
+            log('Palabra pronta', msg);
+            startMicrophone().catch(error => {
+              log('Errore microfono', { message: error.message });
+              setStatus(error.message, 'error');
+            });
+          } else if (msg.type === 'palabra-message') {
+            log('Messaggio Palabra', msg.message);
+          } else if (msg.type === 'error') {
+            log('Errore', msg);
+            setStatus(msg.error, 'error');
+          } else {
+            log('Evento', msg);
+          }
+        };
+
+        ws.onclose = () => {
+          if (els.stopBtn.disabled === false) setStatus('Disconnesso');
+          log('WebSocket chiuso');
+        };
+
+        ws.onerror = () => {
+          setStatus('Errore WebSocket', 'error');
+          log('Errore WebSocket');
+        };
+      } catch (error) {
+        setStatus(error.message, 'error');
+        log('Errore avvio', { message: error.message });
+        await stop();
+      }
+    }
+
+    async function startMicrophone() {
+      const constraints = {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      };
+      if (els.micDevice.value) constraints.deviceId = { exact: els.micDevice.value };
+      inputStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+      await refreshDevices(false);
+
+      inputContext = new AudioContext();
+      inputSource = inputContext.createMediaStreamSource(inputStream);
+      inputProcessor = inputContext.createScriptProcessor(4096, 1, 1);
+      inputSource.connect(inputProcessor);
+      inputProcessor.connect(inputContext.destination);
+
+      inputProcessor.onaudioprocess = (event) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const input = event.inputBuffer.getChannelData(0);
+        let sum = 0;
+        for (const sample of input) sum += sample * sample;
+        meterLevel = Math.min(100, Math.round(Math.sqrt(sum / input.length) * 260));
+        const downsampled = downsampleTo16k(input, inputContext.sampleRate);
+        ws.send(floatToPcm16(downsampled));
+        inputChunkCount++;
+        els.inputChunks.textContent = inputChunkCount;
+      };
+
+      meterTimer = setInterval(() => {
+        els.micLevel.textContent = meterLevel + '%';
+      }, 120);
+
+      els.stopBtn.disabled = false;
+      setStatus('Live - parla nel microfono', 'live');
+      log('Microfono attivo', { sampleRate: inputContext.sampleRate });
+    }
+
+    async function stop() {
+      els.stopBtn.disabled = true;
+      els.startBtn.disabled = false;
+      if (meterTimer) { clearInterval(meterTimer); meterTimer = null; }
+      if (inputProcessor) { inputProcessor.disconnect(); inputProcessor = null; }
+      if (inputSource) { inputSource.disconnect(); inputSource = null; }
+      if (inputContext) { await inputContext.close().catch(() => {}); inputContext = null; }
+      if (inputStream) { inputStream.getTracks().forEach(track => track.stop()); inputStream = null; }
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'stop' }));
+      if (ws) ws.close();
+      ws = null;
+      setStatus('Pronto');
+    }
+
+    els.startBtn.onclick = start;
+    els.stopBtn.onclick = stop;
+    els.refreshDevicesBtn.onclick = () => refreshDevices(true).catch(error => log('Dispositivi non disponibili', { message: error.message }));
+    els.testOutputBtn.onclick = () => testOutput().catch(error => log('Test cuffie fallito', { message: error.message }));
+    els.speakerDevice.onchange = () => applyOutputDevice().catch(error => log('Output cuffie non applicato', { message: error.message }));
+    window.addEventListener('beforeunload', () => { stop(); });
+    refreshDevices(false).catch(() => {});
+  </script>
+</body>
+</html>
