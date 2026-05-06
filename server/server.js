@@ -249,18 +249,29 @@ function getPalabraCredentials() {
   return { clientId, clientSecret };
 }
 
-function palabraHeaders() {
+function palabraHeaders(includeJson = true) {
   const { clientId, clientSecret } = getPalabraCredentials();
-  return {
-    'Content-Type': 'application/json',
+  const headers = {
     ClientID: clientId,
     ClientSecret: clientSecret
   };
+  if (includeJson) headers['Content-Type'] = 'application/json';
+  return headers;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 app.post('/api/palabra/session', rateLimit(20, 60000), async (_req, res) => {
   try {
-    const response = await fetch('https://api.palabra.ai/session-storage/session', {
+    const response = await fetchWithTimeout('https://api.palabra.ai/session-storage/session', {
       method: 'POST',
       headers: palabraHeaders(),
       body: JSON.stringify({
@@ -310,10 +321,10 @@ app.delete('/api/palabra/session/:id', rateLimit(60, 60000), async (req, res) =>
     const sessionId = String(req.params.id || '').trim();
     if (!sessionId) return res.status(400).json({ ok: false, error: 'Missing session id' });
 
-    const response = await fetch(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(sessionId)}`, {
+    const response = await fetchWithTimeout(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(sessionId)}`, {
       method: 'DELETE',
-      headers: palabraHeaders()
-    });
+      headers: palabraHeaders(false)
+    }, 8000);
 
     if (response.status === 204 || response.status === 404) {
       return res.json({ ok: true });
@@ -329,7 +340,7 @@ app.delete('/api/palabra/session/:id', rateLimit(60, 60000), async (req, res) =>
 });
 
 async function createPalabraSession() {
-  const response = await fetch('https://api.palabra.ai/session-storage/session', {
+  const response = await fetchWithTimeout('https://api.palabra.ai/session-storage/session', {
     method: 'POST',
     headers: palabraHeaders(),
     body: JSON.stringify({
@@ -338,7 +349,7 @@ async function createPalabraSession() {
         publisher_can_subscribe: true
       }
     })
-  });
+  }, 10000);
 
   const bodyText = await response.text();
   let payload = null;
@@ -410,7 +421,7 @@ app.post('/api/palabra/ws-tts-test', rateLimit(20, 60000), async (req, res) => {
 
     const result = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        resolve({ timedOut: true });
+        resolve({ timedOut: true, phase: ws?.readyState === WebSocket.OPEN ? 'waiting_for_messages' : 'connecting' });
       }, 12000);
 
       ws = new WebSocket(endpoint);
@@ -503,10 +514,10 @@ app.post('/api/palabra/ws-tts-test', rateLimit(20, 60000), async (req, res) => {
     res.status(500).json({ ok: false, error: error.message });
   } finally {
     if (session?.id) {
-      fetch(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(session.id)}`, {
+      fetchWithTimeout(`https://api.palabra.ai/session-storage/sessions/${encodeURIComponent(session.id)}`, {
         method: 'DELETE',
-        headers: palabraHeaders()
-      }).catch(() => {});
+        headers: palabraHeaders(false)
+      }, 8000).catch(() => {});
     }
   }
 });
